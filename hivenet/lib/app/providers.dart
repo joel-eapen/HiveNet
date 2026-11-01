@@ -47,8 +47,31 @@ final decisionModelProvider =
 final accessControlProvider =
     Provider<AccessControl>((ref) => const DenyAllAccessControl());
 
-final encryptionServiceProvider = Provider<EncryptionService>(
-    (ref) => const UnimplementedEncryptionService());
+final encryptionServiceProvider =
+    Provider<EncryptionService>((ref) => AesGcmEncryptionService());
+
+final integrityCheckerProvider =
+    Provider<IntegrityChecker>((ref) => const Sha256IntegrityChecker());
+
+final messageFramingProvider = Provider<MessageFraming>(
+  (ref) => LengthPrefixedFraming(
+    maxFrameBytes: ref.watch(networkConfigProvider).maxFrameBytes,
+  ),
+);
+
+final chunkManagerProvider = Provider<ChunkManager>(
+  (ref) => FileChunkManager(
+    ref.watch(appPathsProvider).layout,
+    chunkSize: ref.watch(networkConfigProvider).chunkSizeBytes,
+  ),
+);
+
+final fileStoreProvider = Provider<FileStore>(
+  (ref) => LocalFileStore(
+    ref.watch(appPathsProvider).layout,
+    ref.watch(integrityCheckerProvider),
+  ),
+);
 
 final pairingServiceProvider =
     Provider<PairingService>((ref) => const UnimplementedPairingService());

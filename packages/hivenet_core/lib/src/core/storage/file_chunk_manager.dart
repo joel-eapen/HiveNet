@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'chunk_manager.dart';
 import 'storage_layout.dart';
@@ -83,8 +82,11 @@ class FileChunkManager implements ChunkManager {
     try {
       // Cut back to the start of this chunk first. That makes a retry of an
       // already-written chunk idempotent and drops a half-written tail left by
-      // a crash. Appending then lands exactly at index * chunkSize.
-      await raf.truncate(chunk.index * chunkSize);
+      // a crash. The position is set explicitly: after a truncate, an
+      // append-mode handle keeps its old position and would leave a gap.
+      final offset = chunk.index * chunkSize;
+      await raf.truncate(offset);
+      await raf.setPosition(offset);
       await raf.writeFrom(bytes);
     } finally {
       await raf.close();

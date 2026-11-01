@@ -6,7 +6,12 @@ Team MiniMOL: Tushar, Joel.
 
 ## Status
 
-Code skeleton only. The folder structure, interfaces, data contract, database schema, theme, navigation and placeholder screens exist. No real discovery, compression, encryption, transfer or replication yet. Unbuilt services throw `UnimplementedError`, and the UI labels fixture data with a "Demo data" banner.
+No PRD milestone is complete yet.
+
+- **Skeleton:** folder structure, interfaces, data contract, database schema, theme, navigation and placeholder screens.
+- **Milestone 0 (in progress):** a developer screen, Settings → Feasibility spike, tests the eight mobile compatibility checks. Waiting on real phones. See [docs/milestone0_device_test_guide.md](docs/milestone0_device_test_guide.md).
+- **Milestone 3 foundation (done, in `hivenet_core`):** length-prefixed framing, SHA-256 integrity checker, chunk manager with resume, file store with verified atomic commit, AES-256-GCM encryption. Covered by tests including an end-to-end pipeline test.
+- **Not built yet:** image compression and thumbnails, discovery, pairing, the real TCP server and client, replication, the real gallery, access control and key wrapping. Unbuilt services throw `UnimplementedError`, and the UI labels fixture data with a "Demo data" banner.
 
 ## Documentation
 
@@ -100,11 +105,11 @@ Module paths are under `packages/hivenet_core/lib/src/`. Milestones are from PRD
 
 | Module | Milestone |
 |---|---|
-| `networking/` (discovery, sockets, framing, heartbeat) | 0 spike, 2 discovery and pairing, 3 framing |
+| `networking/` (discovery, sockets, heartbeat) | 0 spike, 2 discovery and pairing |
 | `security/device_identity`, `security/key_store` | 1 |
 | `security/pairing_service` | 2 |
-| `compression/`, `storage/` (file store, chunks, integrity) | 3 |
-| `security/encryption_service` (encrypt and decrypt) | 3 |
+| `compression/` | 3 (not built) |
+| `storage/` (file store, chunks, integrity), `networking/length_prefixed_framing`, `security/aes_gcm_encryption_service` | 3 (foundation built) |
 | `router_engine/` (router, scorer, quota, replication) | 4 |
 | `metadata/`, `retrieval/` | 5 |
 | `retrieval/access_control`, key wrapping | 6 |
