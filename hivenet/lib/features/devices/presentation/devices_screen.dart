@@ -3,60 +3,115 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
+import '../../../app/runtime/hivenet_runtime.dart';
 import '../../../app/theme/spacing_tokens.dart';
-import '../../../demo/demo_data.dart';
+import '../../../shared/format.dart';
 import '../../../shared/widgets/empty_state_view.dart';
-import '../../../shared/widgets/placeholder_section.dart';
 import '../../../shared/widgets/status_chip.dart';
 
-/// FR-12 screen 3. A nearby, unpaired peer must never look trusted.
+/// FR-12 screen 3. A nearby device that is not paired is never shown as trusted.
 class DevicesScreen extends ConsumerWidget {
   const DevicesScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final demo = ref.watch(demoModeProvider);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const PlaceholderHeader(title: 'Devices', prd: 'PRD FR-01, FR-02, FR-12'),
-        Expanded(
-          child: !demo
-              ? EmptyStateView(
+    final peers = ref.watch(peersProvider);
+    return peers.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => EmptyStateView(
+        icon: Icons.error_outline,
+        title: 'Could not load devices',
+        message: '$e',
+      ),
+      data: (list) {
+        final paired = list.where((p) => p.paired).toList();
+        final nearby = list.where((p) => !p.paired).toList();
+        return ListView(
+          padding: const EdgeInsets.all(Spacing.lg),
+          children: [
+            Text('Devices', style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: Spacing.xs),
+            Text(
+              'Paired devices store encrypted copies for you. '
+              'Being on the same Wi-Fi gives a device no access.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: Spacing.lg),
+            FilledButton.icon(
+              onPressed: () => context.push('/pair'),
+              icon: const Icon(Icons.qr_code_2),
+              label: const Text('Pair a device'),
+            ),
+            const SizedBox(height: Spacing.xl),
+            Text('Paired', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: Spacing.sm),
+            if (paired.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: Spacing.lg),
+                child: EmptyStateView(
                   icon: Icons.devices_other_outlined,
-                  title: 'No devices found',
+                  title: 'No paired devices',
                   message: 'Pair another phone to start sharing storage.',
-                  action: FilledButton(
-                    onPressed: () => context.push('/pair'),
-                    child: const Text('Pair a device'),
-                  ),
-                )
-              : ListView(
-                  padding: const EdgeInsets.all(Spacing.lg),
-                  children: [
-                    for (final p in DemoData.peers)
-                      Card(
-                        child: ListTile(
-                          title: Text(p.deviceName),
-                          subtitle: Padding(
-                            padding: const EdgeInsets.only(top: Spacing.sm),
-                            child: Align(
-                              alignment: Alignment.centerLeft,
-                              child: StatusChip.peer(p.status),
-                            ),
-                          ),
-                          onTap: () => context.push('/devices/${p.nodeId}'),
-                        ),
-                      ),
-                    const SizedBox(height: Spacing.md),
-                    OutlinedButton(
-                      onPressed: () => context.push('/pair'),
-                      child: const Text('Pair a device'),
-                    ),
-                  ],
                 ),
+              ),
+            for (final p in paired) _DeviceCard(peer: p),
+            if (nearby.isNotEmpty) ...[
+              const SizedBox(height: Spacing.xl),
+              Text('Nearby, not paired', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: Spacing.xs),
+              Text(
+                'Seen on this network. They cannot use your storage or see your images until you pair.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: Spacing.sm),
+              for (final p in nearby) _DeviceCard(peer: p),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _DeviceCard extends StatelessWidget {
+  const _DeviceCard({required this.peer});
+  final PeerView peer;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = peer.telemetry;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Spacing.md),
+      child: Card(
+        child: ListTile(
+          contentPadding: const EdgeInsets.all(Spacing.md),
+          leading: const Icon(Icons.smartphone, size: Sizes.iconLg),
+          title: Text(peer.name),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: Spacing.sm),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                StatusChip.peer(peer.status),
+                if (peer.paired && t != null) ...[
+                  const SizedBox(height: Spacing.sm),
+                  Text('${formatBytes(t.availableStorageBytes)} free of '
+                      '${formatBytes(t.totalStorageBytes)} shared'
+                      '${t.measuredLatencyMs == null ? '' : ' · ${t.measuredLatencyMs} ms'}'),
+                ],
+                if (peer.paired)
+                  Padding(
+                    padding: const EdgeInsets.only(top: Spacing.xs),
+                    child: Text('Last seen ${timeAgo(peer.lastSeen)}',
+                        style: Theme.of(context).textTheme.bodySmall),
+                  ),
+              ],
+            ),
+          ),
+          trailing: peer.paired ? const Icon(Icons.chevron_right) : null,
+          onTap: peer.paired ? () => context.push('/devices/${peer.nodeId}') : null,
         ),
-      ],
+      ),
     );
   }
 }

@@ -4,6 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hivenet_core/hivenet_core.dart';
 
 import '../adapters/app_paths.dart';
+import '../adapters/app_settings.dart';
+import '../demo/demo_data.dart';
+import 'runtime/hivenet_runtime.dart';
 import '../adapters/bonsoir_peer_discovery.dart';
 import '../adapters/flutter_image_compressor.dart';
 import '../adapters/secure_key_store.dart';
@@ -136,8 +139,9 @@ final imageRequestManagerProvider = Provider<ImageRequestManager>(
 /// Defaults to on for the skeleton; production repositories never read demo
 /// data.
 class DemoModeNotifier extends Notifier<bool> {
+  /// Live data when the runtime exists. Fixtures only when there is none.
   @override
-  bool build() => true;
+  bool build() => ref.read(runtimeProvider) == null;
   void set(bool value) => state = value;
 }
 
@@ -147,8 +151,15 @@ final demoModeProvider =
 /// In-memory for now. Persisting it is part of Milestone 1.
 class OnboardingCompleteNotifier extends Notifier<bool> {
   @override
-  bool build() => false;
-  void complete() => state = true;
+  bool build() => ref.read(appSettingsProvider)?.onboardingComplete ?? false;
+  void complete() {
+    state = true;
+    final settings = ref.read(appSettingsProvider);
+    if (settings != null) {
+      settings.onboardingComplete = true;
+      settings.save();
+    }
+  }
 }
 
 final onboardingCompleteProvider =
@@ -157,20 +168,99 @@ final onboardingCompleteProvider =
 
 class DeviceNameNotifier extends Notifier<String> {
   @override
-  String build() => 'This device';
-  void set(String name) => state = name;
+  String build() => ref.read(appSettingsProvider)?.deviceName ?? 'This device';
+  void set(String name) {
+    state = name;
+    final settings = ref.read(appSettingsProvider);
+    if (settings != null) {
+      settings.deviceName = name;
+      settings.save();
+    }
+    ref.read(runtimeProvider)?.deviceName = name;
+  }
 }
 
 final deviceNameProvider =
     NotifierProvider<DeviceNameNotifier, String>(DeviceNameNotifier.new);
 
-/// Real value comes from discovery in Milestone 2. Defaults to offline rather
-/// than pretending to be connected.
-class NetworkStateNotifier extends Notifier<NetworkState> {
-  @override
-  NetworkState build() => NetworkState.offline;
-}
+/// Derived from real peers: connected if any paired device answered recently,
+/// degraded if devices are paired but none answers, offline otherwise.
+final networkStateProvider = Provider<NetworkState>((ref) {
+  final peers = ref.watch(peersProvider).asData?.value ?? const <PeerView>[];
+  final paired = peers.where((p) => p.paired).toList();
+  if (ref.watch(runtimeProvider) == null) return NetworkState.offline;
+  if (paired.isEmpty) return NetworkState.discovering;
+  return paired.any((p) => p.status == PeerStatus.online)
+      ? NetworkState.connected
+      : NetworkState.degraded;
+});
 
-final networkStateProvider =
-    NotifierProvider<NetworkStateNotifier, NetworkState>(
-        NetworkStateNotifier.new);
+// --- Runtime and live data ---
+
+/// The running HiveNet node. Null only in tests and previews.
+final runtimeProvider = Provider<HiveNetRuntime?>((ref) => null);
+
+final appSettingsProvider = Provider<AppSettings?>((ref) => null);
+
+/// Paired and nearby devices. Falls back to demo fixtures only without a runtime.
+final peersProvider = StreamProvider<List<PeerView>>((ref) {
+  final rt = ref.watch(runtimeProvider);
+  if (rt != null) return rt.watchPeers();
+  if (!ref.watch(demoModeProvider)) return Stream.value(const []);
+  return Stream.value([
+    for (final t in DemoData.peers)
+      PeerView(
+        nodeId: t.nodeId,
+        name: t.deviceName,
+        status: t.status,
+        paired: true,
+        host: t.ipAddresses.first,
+        port: t.port,
+        telemetry: t,
+        lastSeen: t.lastSeen,
+      ),
+  ]);
+});
+
+final galleryProvider = StreamProvider<List<ImageManifest>>((ref) {
+  final rt = ref.watch(runtimeProvider);
+  if (rt != null) return rt.watchGallery();
+  return Stream.value(ref.watch(demoModeProvider) ? DemoData.images : const []);
+});
+
+/// Upload jobs, newest first.
+final jobsProvider = StreamProvider<List<UploadJob>>((ref) {
+  final rt = ref.watch(runtimeProvider);
+  if (rt != null) {
+    return rt.db.uploadJobsDao.watchAll().map((rows) => [
+          for (final r in rows)
+            UploadJob(
+              jobId: r.jobId,
+              contentId: r.contentId,
+              status: enumFromWire(UploadState.values, r.status),
+              requestedReplicationFactor: r.requestedReplicationFactor,
+              createdAt: r.createdAt.toUtc(),
+              completedAt: r.completedAt?.toUtc(),
+              failureReason: r.failureReason,
+            ),
+        ]..sort((a, b) => b.createdAt.compareTo(a.createdAt)));
+  }
+  if (!ref.watch(demoModeProvider)) return Stream.value(const []);
+  return Stream.value([
+    UploadJob(
+      jobId: 'demo-transfer-1',
+      contentId: DemoData.images.first.contentId,
+      status: UploadState.transferring,
+      requestedReplicationFactor: 2,
+      createdAt: DateTime.utc(2026, 11, 1, 10),
+    ),
+  ]);
+});
+
+
+/// Disk use. Refreshed on demand and when the gallery changes.
+final storageStatsProvider = FutureProvider.autoDispose<StorageStats?>((ref) async {
+  final rt = ref.watch(runtimeProvider);
+  ref.watch(galleryProvider);
+  return rt?.storageStats();
+});

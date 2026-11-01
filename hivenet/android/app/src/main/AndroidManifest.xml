@@ -1,6 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Local-network peer-to-peer (PRD section 10.2). -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Scanning the pairing QR code. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
     <!-- Only needed if the chosen mDNS implementation requires a multicast lock. -->

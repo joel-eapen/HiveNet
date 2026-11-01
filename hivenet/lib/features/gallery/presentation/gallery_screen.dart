@@ -1,66 +1,149 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hivenet_core/hivenet_core.dart';
 
 import '../../../app/providers.dart';
 import '../../../app/theme/spacing_tokens.dart';
-import '../../../demo/demo_data.dart';
+import '../../../shared/format.dart';
 import '../../../shared/widgets/empty_state_view.dart';
-import '../../../shared/widgets/placeholder_section.dart';
 import '../../../shared/widgets/status_chip.dart';
 
-/// FR-12 screen 4. Real gallery data comes from the manifest store in
-/// Milestone 5. Entries here never show thumbnails (locked placeholder).
-class GalleryScreen extends ConsumerWidget {
+enum _Filter { all, mine, shared, attention }
+
+/// FR-12 screen 4. Entries only; no thumbnails are shown because a thumbnail is
+/// image content and is not yet encrypted per viewer.
+class GalleryScreen extends ConsumerStatefulWidget {
   const GalleryScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final demo = ref.watch(demoModeProvider);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const PlaceholderHeader(title: 'Shared gallery', prd: 'PRD FR-07, FR-12'),
-        Expanded(
-          child: !demo
-              ? EmptyStateView(
-                  icon: Icons.photo_library_outlined,
-                  title: 'No images yet',
-                  message: 'Upload an image to share it with your paired devices.',
-                  action: FilledButton(
-                    onPressed: () => context.push('/upload'),
-                    child: const Text('Upload an image'),
+  ConsumerState<GalleryScreen> createState() => _GalleryScreenState();
+}
+
+class _GalleryScreenState extends ConsumerState<GalleryScreen> {
+  _Filter _filter = _Filter.all;
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final gallery = ref.watch(galleryProvider);
+    final me = ref.watch(runtimeProvider)?.identity.nodeId;
+    final peers = ref.watch(peersProvider).asData?.value ?? const [];
+    String owner(ImageManifest m) => m.ownerNodeId == me
+        ? 'You'
+        : peers.where((p) => p.nodeId == m.ownerNodeId).firstOrNull?.name ?? 'Another device';
+
+    return gallery.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => EmptyStateView(
+        icon: Icons.error_outline,
+        title: 'Could not load the gallery',
+        message: '$e',
+        action: FilledButton(onPressed: () => ref.invalidate(galleryProvider), child: const Text('Retry')),
+      ),
+      data: (all) {
+        final shown = all.where((m) {
+          final okFilter = switch (_filter) {
+            _Filter.all => true,
+            _Filter.mine => m.ownerNodeId == me,
+            _Filter.shared => m.ownerNodeId != me,
+            _Filter.attention => m.availabilityStatus != AvailabilityStatus.available,
+          };
+          return okFilter && m.fileName.toLowerCase().contains(_query.toLowerCase());
+        }).toList();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(Spacing.lg, Spacing.lg, Spacing.lg, Spacing.sm),
+              child: Text('Shared gallery', style: Theme.of(context).textTheme.headlineSmall),
+            ),
+            if (all.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: Spacing.lg),
+                child: TextField(
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    hintText: 'Search by name',
+                    border: OutlineInputBorder(),
+                    isDense: true,
                   ),
-                )
-              : ListView.separated(
-                  padding: const EdgeInsets.all(Spacing.lg),
-                  itemCount: DemoData.images.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: Spacing.md),
-                  itemBuilder: (context, i) {
-                    final image = DemoData.images[i];
-                    return Card(
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.all(Spacing.md),
-                        leading: const Icon(Icons.lock_outline, size: Sizes.iconLg),
-                        title: Text(image.fileName),
-                        subtitle: Padding(
-                          padding: const EdgeInsets.only(top: Spacing.sm),
-                          child: Wrap(
-                            spacing: Spacing.sm,
-                            runSpacing: Spacing.sm,
-                            children: [
-                              StatusChip.availability(image.availabilityStatus),
-                              StatusChip.importance(image.importance),
-                            ],
-                          ),
-                        ),
-                        onTap: () => context.push('/gallery/${image.contentId}'),
-                      ),
-                    );
-                  },
+                  onChanged: (v) => setState(() => _query = v),
                 ),
-        ),
-      ],
+              ),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: Spacing.lg, vertical: Spacing.sm),
+                child: Row(children: [
+                  for (final f in _Filter.values)
+                    Padding(
+                      padding: const EdgeInsets.only(right: Spacing.sm),
+                      child: ChoiceChip(
+                        label: Text(switch (f) {
+                          _Filter.all => 'All',
+                          _Filter.mine => 'Mine',
+                          _Filter.shared => 'Shared with me',
+                          _Filter.attention => 'Needs attention',
+                        }),
+                        selected: _filter == f,
+                        onSelected: (_) => setState(() => _filter = f),
+                      ),
+                    ),
+                ]),
+              ),
+            ],
+            Expanded(
+              child: all.isEmpty
+                  ? EmptyStateView(
+                      icon: Icons.photo_library_outlined,
+                      title: 'No images yet',
+                      message: 'Upload an image to keep encrypted copies on your paired devices.',
+                      action: FilledButton(
+                        onPressed: () => context.push('/upload'),
+                        child: const Text('Upload an image'),
+                      ),
+                    )
+                  : shown.isEmpty
+                      ? const EmptyStateView(
+                          icon: Icons.search_off,
+                          title: 'No matches',
+                          message: 'Try a different search or filter.',
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.all(Spacing.lg),
+                          itemCount: shown.length,
+                          separatorBuilder: (_, _) => const SizedBox(height: Spacing.md),
+                          itemBuilder: (context, i) {
+                            final m = shown[i];
+                            return Card(
+                              child: ListTile(
+                                contentPadding: const EdgeInsets.all(Spacing.md),
+                                leading: const Icon(Icons.lock_outline, size: Sizes.iconLg),
+                                title: Text(m.fileName),
+                                subtitle: Padding(
+                                  padding: const EdgeInsets.only(top: Spacing.sm),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('${owner(m)} · ${formatBytes(m.fileSizeBytes)} · ${timeAgo(m.createdAt)}'),
+                                      const SizedBox(height: Spacing.sm),
+                                      Wrap(spacing: Spacing.sm, runSpacing: Spacing.sm, children: [
+                                        StatusChip.availability(m.availabilityStatus),
+                                        StatusChip.importance(m.importance),
+                                      ]),
+                                    ],
+                                  ),
+                                ),
+                                onTap: () => context.push('/gallery/${m.contentId}'),
+                              ),
+                            );
+                          },
+                        ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

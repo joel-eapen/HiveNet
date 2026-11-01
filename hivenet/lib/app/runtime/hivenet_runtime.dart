@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
@@ -33,6 +32,33 @@ class PeerView {
   int? port;
   PeerTelemetry? telemetry;
   DateTime? lastSeen;
+}
+
+class StorageStats {
+  const StorageStats({
+    required this.replicaBytes,
+    required this.replicaCount,
+    required this.reservedBytes,
+    required this.quotaBytes,
+    required this.ownedBytes,
+    required this.cacheBytes,
+    required this.partialBytes,
+  });
+
+  /// Encrypted copies this phone stores for others (and for itself).
+  final int replicaBytes;
+  final int replicaCount;
+  final int reservedBytes;
+  final int quotaBytes;
+
+  /// Encrypted originals of images this phone uploaded.
+  final int ownedBytes;
+
+  /// Decrypted images kept so they open instantly. Can be cleared.
+  final int cacheBytes;
+
+  /// Unfinished transfers.
+  final int partialBytes;
 }
 
 /// A pairing waiting for the user to compare fingerprints and accept.
@@ -566,6 +592,58 @@ class HiveNetRuntime {
       'reserved': reserved,
       'active': 0,
     };
+  }
+
+  // ------------------------------------------------------------- storage
+
+  /// Disk use, for the Storage screen.
+  Future<StorageStats> storageStats() async {
+    Future<(int, int)> sizeOf(String dir) async {
+      final d = Directory(dir);
+      if (!await d.exists()) return (0, 0);
+      var bytes = 0;
+      var count = 0;
+      await for (final e in d.list(recursive: true, followLinks: false)) {
+        if (e is File) {
+          bytes += await e.length();
+          count++;
+        }
+      }
+      return (bytes, count);
+    }
+
+    final stored = await sizeOf(paths.layout.objectsDir);
+    final owned = await sizeOf(paths.layout.outgoingDir);
+    final cache = await sizeOf(paths.layout.retrievedCacheDir);
+    final partial = await sizeOf(paths.layout.incompleteTransfersDir);
+    return StorageStats(
+      replicaBytes: stored.$1,
+      replicaCount: stored.$2,
+      reservedBytes: await quota.reservedBytes,
+      quotaBytes: contributionBytes,
+      ownedBytes: owned.$1,
+      cacheBytes: cache.$1,
+      partialBytes: partial.$1,
+    );
+  }
+
+  /// The address other phones would use to reach this one, if on a network.
+  Future<String?> localAddress() async {
+    try {
+      return await _localAddress();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Deletes decrypted images kept for viewing. Replicas and keys are untouched.
+  Future<void> clearViewedCache() async {
+    final d = Directory(paths.layout.retrievedCacheDir);
+    if (await d.exists()) {
+      await for (final e in d.list()) {
+        if (e is File) await e.delete();
+      }
+    }
   }
 
   // ------------------------------------------------------------- images
