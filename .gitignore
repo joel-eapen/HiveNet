@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+
+# Dart / Flutter build output
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Generated code (regenerate with build_runner; see README)
+*.g.dart
+*.freezed.dart
+
+# Local secrets and signing
+*.jks
+*.keystore
+key.properties
+local.properties
+.env

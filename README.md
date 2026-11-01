@@ -1,1 +1,127 @@
-#HIVENET
+# HiveNet
+
+Peer-to-peer edge storage for Android and iOS. Phones on the same Wi-Fi form a mesh that stores encrypted image replicas, shows a shared gallery, and serves images on demand by content ID. There is no cloud bucket and no central database.
+
+Team MiniMOL: Tushar, Joel.
+
+## Status
+
+Code skeleton only. The folder structure, interfaces, data contract, database schema, theme, navigation and placeholder screens exist. No real discovery, compression, encryption, transfer or replication yet. Unbuilt services throw `UnimplementedError`, and the UI labels fixture data with a "Demo data" banner.
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [docs/hivenet_prd_v1.2.md](docs/hivenet_prd_v1.2.md) | Main PRD: requirements, protocol, data model, security, milestones |
+| [docs/hivenet_frontend_prd_v1.1.md](docs/hivenet_frontend_prd_v1.1.md) | Frontend PRD: screens, view models, navigation |
+
+## Repository layout
+
+```text
+HiveNet/
+├── docs/                          PRDs
+├── hivenet/                       Flutter app (com.minimol.hivenet)
+│   ├── lib/
+│   │   ├── main.dart              Startup: resolve paths, open database, run app
+│   │   ├── app/                   App widget, router, shell, providers, theme/
+│   │   ├── features/              One folder per feature (UI only)
+│   │   ├── adapters/              Flutter-dependent implementations of core interfaces
+│   │   ├── demo/                  Fixture data, shown only in demo mode
+│   │   └── shared/widgets/        Reusable widgets (StatusChip, EmptyStateView, ...)
+│   └── test/
+└── packages/hivenet_core/         Pure Dart: contract, interfaces, protocol, schema
+    ├── lib/hivenet_core.dart      Single export file for the package
+    ├── lib/src/core/              compression, networking, router_engine, retrieval,
+    │                              storage, security, metadata
+    ├── lib/src/database/          Drift tables, DAOs, AppDatabase
+    ├── lib/src/shared/            models (enums, manifests, jobs, grants), utils
+    └── test/
+```
+
+### Why two projects
+
+`hivenet_core` has no Flutter dependency, so its tests run with plain `dart test`, with no phone or emulator. Anything that needs a Flutter plugin lives in `hivenet/lib/adapters/` and implements a core interface:
+
+| Core interface | App adapter | Plugin |
+|---|---|---|
+| `KeyStore` | `SecureKeyStore` | `flutter_secure_storage` (Android Keystore, iOS Keychain) |
+| `ImageCompressor` | `FlutterImageCompressor` (stub) | `flutter_image_compress` |
+| `PeerDiscovery` | `BonsoirPeerDiscovery` (stub) | `bonsoir` |
+| `StorageLayout` paths | `AppPaths` | `path_provider` |
+| SQLite connection | `openAppDatabase` | `drift_flutter` |
+
+The UI depends on interfaces and providers (`app/providers.dart`), not on concrete services.
+
+## Setup
+
+Requires Flutter (stable) and, for Android, Android Studio with the Android SDK.
+
+```sh
+brew install --cask flutter android-studio
+# Open Android Studio once so it installs the Android SDK, then:
+flutter doctor --android-licenses
+flutter doctor
+```
+
+iOS builds additionally need full Xcode and CocoaPods. iOS config is in place but has not been built yet.
+
+### Generate code (required on a fresh clone)
+
+Drift's generated `*.g.dart` files are gitignored.
+
+```sh
+cd packages/hivenet_core
+dart pub get
+dart run build_runner build
+```
+
+Re-run this command after changing anything under `lib/src/database/`.
+
+### Run and test
+
+```sh
+# Core package
+cd packages/hivenet_core
+dart analyze && dart test
+
+# App
+cd hivenet
+flutter pub get
+flutter analyze && flutter test
+flutter run                   # needs an emulator or a connected device
+flutter build apk --debug
+```
+
+Dependency versions are pinned exactly in both `pubspec.yaml` files.
+
+## Where each module gets built
+
+Module paths are under `packages/hivenet_core/lib/src/`. Milestones are from PRD section 11.
+
+| Module | Milestone |
+|---|---|
+| `networking/` (discovery, sockets, framing, heartbeat) | 0 spike, 2 discovery and pairing, 3 framing |
+| `security/device_identity`, `security/key_store` | 1 |
+| `security/pairing_service` | 2 |
+| `compression/`, `storage/` (file store, chunks, integrity) | 3 |
+| `security/encryption_service` (encrypt and decrypt) | 3 |
+| `router_engine/` (router, scorer, quota, replication) | 4 |
+| `metadata/`, `retrieval/` | 5 |
+| `retrieval/access_control`, key wrapping | 6 |
+| Replica repair, optional AI ranking via `decision_model_adapter` | 7 |
+
+## Design rules to keep
+
+- Same Wi-Fi, mDNS discovery, pairing or storage placement never grants permission to view an image (PRD FR-09A). `DenyAllAccessControl` is the default.
+- `DecisionModelAdapter` can only rank peers. It must never gain methods for grants, keys or authorization.
+- Upload success needs verified replicas. `UploadState.completed` is reachable only from `replicating`.
+- A request's `senderNodeId` is a claim. Use `PeerConnection.authenticatedNodeId`.
+- Enum wire names and `kProtocolVersion` are frozen by `test/models/wire_names_test.dart`. Changing one is a protocol break.
+- Demo data lives only in `hivenet/lib/demo/` and is never read by production code.
+
+## Known gaps
+
+- The Android SDK was not installed when the skeleton was written, so `flutter build apk --debug` has not been run.
+- iOS has not been built.
+- The onboarding-complete flag is in memory only. Persisting it is Milestone 1.
+- The output image format (JPEG or WebP) is a placeholder default until the Milestone 0 device spike.
