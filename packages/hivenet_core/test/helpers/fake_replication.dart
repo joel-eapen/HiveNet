@@ -77,6 +77,7 @@ class FakeTransport implements ReplicaTransport {
     required String nodeId,
     required String jobId,
     required String contentId,
+    required String ciphertextHash,
   }) async {
     calls.add('commit:$nodeId');
     if (commitThrows.contains(nodeId)) throw StateError('commit failed');

@@ -165,6 +165,7 @@ class DefaultReplicationManager implements ReplicationManager {
                 nodeId: id,
                 jobId: current.jobId,
                 contentId: source.contentId,
+                ciphertextHash: source.ciphertextHash,
               )
               .timeout(config.commitTimeout);
         }, onFailure: () => _abort(id, current.jobId)),

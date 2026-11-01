@@ -46,12 +46,13 @@ abstract interface class ReplicaTransport {
     required ReplicationSource source,
   });
 
-  /// Tells the peer to verify the full object and move it into its object
-  /// store atomically. Returns the ciphertext hash the peer computed.
+  /// Tells the peer to verify the full object against [ciphertextHash] and move
+  /// it into its object store atomically. Returns the hash the peer reports.
   Future<String> commit({
     required String nodeId,
     required String jobId,
     required String contentId,
+    required String ciphertextHash,
   });
 
   /// Best effort: release a reservation and drop partial data.

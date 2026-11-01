@@ -97,7 +97,7 @@ class _AlwaysOk implements ReplicaTransport {
   @override
   Future<void> upload({required String nodeId, required String jobId, required ReplicationSource source}) async {}
   @override
-  Future<String> commit({required String nodeId, required String jobId, required String contentId}) async => hash;
+  Future<String> commit({required String nodeId, required String jobId, required String contentId, required String ciphertextHash}) async => hash;
   @override
   Future<void> abort({required String nodeId, required String jobId}) async {}
 }

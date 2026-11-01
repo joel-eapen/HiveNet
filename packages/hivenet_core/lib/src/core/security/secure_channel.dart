@@ -439,8 +439,10 @@ class SecureChannel {
     if (_closed) return;
     _closed = true;
     _socket.destroy();
+    // Do not await the controller: with no listener its close() never
+    // completes, which would make closing an unread channel hang forever.
+    if (!_incoming.isClosed) unawaited(_incoming.close());
     await _queue.dispose();
-    if (!_incoming.isClosed) await _incoming.close();
   }
 
   // --------------------------------------------------------------- helpers

@@ -124,6 +124,17 @@ class Mitm {
   /// Set to make the proxy send each client->server chunk twice.
   bool duplicateClientToServer = false;
 
+  /// Cuts both connections once this many client->server bytes have passed.
+  int? dropAfterClientBytes;
+  int _passed = 0;
+  final List<Socket> _sockets = [];
+
+  void cut() {
+    for (final s in _sockets) {
+      s.destroy();
+    }
+  }
+
   int get port => _listener.port;
 
   static Future<Mitm> start(int upstreamPort) async {
@@ -131,8 +142,15 @@ class Mitm {
     final m = Mitm._(listener, upstreamPort);
     listener.listen((client) async {
       final server = await Socket.connect(InternetAddress.loopbackIPv4, upstreamPort);
+      m._sockets..add(client)..add(server);
       client.listen((d) {
         m.clientToServer.add(d);
+        m._passed += d.length;
+        final limit = m.dropAfterClientBytes;
+        if (limit != null && m._passed > limit) {
+          m.cut();
+          return;
+        }
         final out = m.tamperClientToServer?.call(d) ?? d;
         server.add(out);
         if (m.duplicateClientToServer) server.add(out);

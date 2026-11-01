@@ -30,10 +30,12 @@ export 'src/core/networking/message_framing.dart';
 export 'src/core/networking/message_protocol.dart';
 export 'src/core/networking/network_config.dart';
 export 'src/core/networking/peer_discovery.dart';
+export 'src/core/networking/peer_server.dart';
 export 'src/core/networking/socket_client.dart';
 export 'src/core/networking/socket_server.dart';
 
 // Router engine
+export 'src/core/router_engine/channel_replica_transport.dart';
 export 'src/core/router_engine/decision_model_adapter.dart';
 export 'src/core/router_engine/default_replication_manager.dart';
 export 'src/core/router_engine/deterministic_storage_router.dart';
@@ -57,6 +59,7 @@ export 'src/core/retrieval/replica_selector.dart';
 // Storage
 export 'src/core/storage/chunk_manager.dart';
 export 'src/core/storage/file_chunk_manager.dart';
+export 'src/core/storage/peer_storage_service.dart';
 export 'src/core/storage/file_store.dart';
 export 'src/core/storage/local_file_store.dart';
 export 'src/core/storage/sha256_integrity_checker.dart';
@@ -69,6 +72,7 @@ export 'src/core/security/device_identity.dart';
 export 'src/core/security/ed25519_device_identity_service.dart';
 export 'src/core/security/encryption_service.dart';
 export 'src/core/security/key_store.dart';
+export 'src/core/security/pairing_protocol.dart';
 export 'src/core/security/pairing_service.dart';
 export 'src/core/security/secure_channel.dart';
 

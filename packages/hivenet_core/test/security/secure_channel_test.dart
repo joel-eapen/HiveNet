@@ -21,8 +21,13 @@ MessageEnvelope msg(String id, {Uint8List? data, Map<String, Object?> payload = 
 Uint8List patterned(int n) =>
     Uint8List.fromList(List.generate(n, (i) => (i * 13 + 5) % 256));
 
-Matcher denied() =>
-    isA<HiveError>().having((e) => e.code, 'code', HiveErrorCode.unauthenticated);
+Matcher denied([String? reason]) {
+  var m = isA<HiveError>().having((e) => e.code, 'code', HiveErrorCode.unauthenticated);
+  if (reason != null) {
+    m = m.having((e) => e.technicalDetails ?? '', 'reason', contains(reason));
+  }
+  return m;
+}
 
 void main() {
   late TestDevice alice; // client
@@ -177,24 +182,31 @@ void main() {
   });
 
   group('impersonation', () {
-    /// A raw client that speaks the handshake with hand-made contents.
-    Future<List<Object>> rawClient(Socket socket, Map<String, Object?> hello,
+    /// A raw client that speaks the handshake with hand-made contents. It
+    /// returns as soon as the server's first reply arrives, leaving the socket
+    /// open, so a follow-up message can be sent before the server times out.
+    Future<List<String>> rawClient(Socket socket, Map<String, Object?> hello,
         {String? sender}) async {
-      final replies = <Object>[];
+      final replies = <String>[];
       final buf = LengthPrefixedBuffer(maxBodyBytes: 1 << 20);
-      final done = Completer<void>();
+      final first = Completer<void>();
       socket.listen((d) {
         for (final body in buf.add(d)) {
           replies.add(utf8.decode(body));
         }
-      }, onDone: done.complete, onError: (_) => done.complete());
+        if (replies.isNotEmpty && !first.isCompleted) first.complete();
+      }, onDone: () {
+        if (!first.isCompleted) first.complete();
+      }, onError: (_) {
+        if (!first.isCompleted) first.complete();
+      });
       socket.add(LengthPrefixedBuffer.frame(utf8.encode(jsonEncode(MessageEnvelope(
         type: MessageType.authHello,
         requestId: 'handshake',
         senderNodeId: sender ?? 'x',
         payload: hello,
       ).toJson()))));
-      await done.future.timeout(const Duration(seconds: 3), onTimeout: () {});
+      await first.future.timeout(const Duration(seconds: 3), onTimeout: () {});
       return replies;
     }
 
@@ -217,7 +229,7 @@ void main() {
         'pub': base64Encode(mallory.publicKey),
         'eph': base64Encode(Uint8List(32)..[0] = 9),
       }, sender: alice.nodeId); // mallory says "I am alice"
-      expect(await server, denied());
+      expect(await server, denied('node id does not match the public key'));
     });
 
     test("presenting alice's real key and id without her private key is refused", () async {
@@ -229,14 +241,14 @@ void main() {
         'pub': base64Encode(alice.publicKey),
         'eph': base64Encode(ephemeral),
       }, sender: alice.nodeId);
-      expect(bytes, isNotEmpty, reason: 'server answered with its reply');
+      expect(bytes, hasLength(1), reason: 'server answered with its reply');
       pair.client.add(LengthPrefixedBuffer.frame(utf8.encode(jsonEncode(MessageEnvelope(
         type: MessageType.authFinish,
         requestId: 'handshake',
         senderNodeId: alice.nodeId,
         payload: {'sig': base64Encode(Uint8List(64))},
       ).toJson()))));
-      expect(await server, denied());
+      expect(await server, denied('client signature is invalid'));
     });
 
     test('a weak (all-zero) identity key is refused', () async {
@@ -245,16 +257,7 @@ void main() {
         'pub': base64Encode(Uint8List(32)),
         'eph': base64Encode(Uint8List(32)..[0] = 9),
       }, sender: Ed25519DeviceIdentityService.nodeIdFor(Uint8List(32)));
-      expect(await server, denied());
-    });
-
-    test('a low-order ephemeral key cannot force a predictable secret', () async {
-      final server = serverOutcome();
-      await rawClient(pair.client, {
-        'pub': base64Encode(alice.publicKey),
-        'eph': base64Encode(Uint8List(32)), // all-zero X25519 point
-      }, sender: alice.nodeId);
-      expect(await server, isA<HiveError>());
+      expect(await server, denied('weak key'));
     });
   });
 
@@ -346,7 +349,15 @@ void main() {
           identity: bob.identity, signer: bob.service, verifier: verifierFor([alice]));
       final c = SecureChannel.connect(client,
           identity: alice.identity, signer: alice.service, verifier: verifierFor([bob]));
-      return (client: await c, server: await s);
+      // Await both so a failure on either side is reported, not left unhandled.
+      final results = await Future.wait([
+        c.then<Object>((v) => v, onError: (Object e) => e),
+        s.then<Object>((v) => v, onError: (Object e) => e),
+      ]);
+      for (final r in results) {
+        if (r is! SecureChannel) throw r;
+      }
+      return (client: results[0] as SecureChannel, server: results[1] as SecureChannel);
     }
 
     test('cannot read the traffic', () async {

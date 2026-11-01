@@ -1,22 +1,5 @@
 import '../../shared/models/security_models.dart';
-
-/// Contents of the pairing QR code. Contains the public identity and a
-/// one-time secret for this pairing only, never long-lived keys.
-class PairingInvite {
-  const PairingInvite({
-    required this.nodeId,
-    required this.fingerprint,
-    required this.host,
-    required this.port,
-    required this.oneTimeSecret,
-  });
-
-  final String nodeId;
-  final String fingerprint;
-  final String host;
-  final int port;
-  final String oneTimeSecret;
-}
+import 'pairing_protocol.dart';
 
 enum PairingStatus {
   waitingForScan,
