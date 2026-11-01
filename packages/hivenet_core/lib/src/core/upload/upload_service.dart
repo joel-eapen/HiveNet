@@ -42,7 +42,7 @@ class UploadRequest {
 }
 
 class UploadUpdate {
-  const UploadUpdate(this.stage, {this.contentId, this.job, this.message});
+  const UploadUpdate(this.stage, {this.contentId, this.job, this.message, this.plan});
 
   final UploadStage stage;
   final String? contentId;
@@ -50,6 +50,10 @@ class UploadUpdate {
   /// Present from the planning stage on; its status is the truthful outcome.
   final UploadJob? job;
   final String? message;
+
+  /// Which devices were chosen and why. Set once, on the update that follows
+  /// planning.
+  final PlacementPlan? plan;
 }
 
 /// Runs one image from "compressed file" to "stored on other devices":
@@ -146,6 +150,8 @@ class UploadService {
       ),
       await peerTelemetry(),
     );
+
+    yield UploadUpdate(UploadStage.replicating, contentId: contentId, plan: plan);
 
     final job = UploadJob(
       jobId: _newJobId(),

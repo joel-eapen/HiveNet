@@ -31,6 +31,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   bool _running = false;
   UploadStage? _stage;
   UploadJob? _job;
+  PlacementPlan? _plan;
   String? _contentId;
   String? _error;
 
@@ -117,6 +118,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
       _error = null;
       _stage = UploadStage.hashing;
       _job = null;
+      _plan = null;
     });
     try {
       await for (final u in rt.uploadImage(
@@ -127,6 +129,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
         if (!mounted) return;
         setState(() {
           _stage = u.stage;
+          _plan = u.plan ?? _plan;
           _job = u.job ?? _job;
           _contentId = u.contentId ?? _contentId;
         });
@@ -239,6 +242,8 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                     nameOf: rt.nameOf,
                     describe: rt.describeFailure,
                   ),
+                  if (_plan?.audit != null)
+                    _Decision(audit: _plan!.audit!, nameOf: rt.nameOf),
                 ],
                 if (_error != null)
                   Padding(
@@ -391,5 +396,73 @@ class _Progress extends StatelessWidget {
       }
     }
     return lines.join(' ');
+  }
+}
+
+
+/// Shows how the storage devices were chosen: the score of each one that
+/// qualified, and why any others were skipped.
+class _Decision extends StatelessWidget {
+  const _Decision({required this.audit, required this.nameOf});
+
+  final PlacementAudit audit;
+  final String Function(String nodeId) nameOf;
+
+  static String _why(IneligibleReason r) => switch (r) {
+        IneligibleReason.notOnline => 'not online',
+        IneligibleReason.staleTelemetry => 'no recent reading',
+        IneligibleReason.overloaded => 'busy with other transfers',
+        IneligibleReason.insufficientStorage => 'not enough free space',
+        IneligibleReason.lowBattery => 'battery too low',
+        IneligibleReason.notTrusted => 'not paired',
+        IneligibleReason.incompatibleProtocol => 'different app version',
+        IneligibleReason.excluded => 'this device',
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: Spacing.md),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(Spacing.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('How devices were chosen', style: theme.textTheme.titleSmall),
+              const SizedBox(height: Spacing.xs),
+              Text('Best score first. A device must be online, have room and enough battery.',
+                  style: theme.textTheme.bodySmall),
+              const SizedBox(height: Spacing.sm),
+              if (audit.ranking.isEmpty) const Text('No device qualified.'),
+              for (final id in audit.ranking)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(children: [
+                    Icon(audit.selected.contains(id) ? Icons.check_circle : Icons.circle_outlined,
+                        size: Sizes.iconSm),
+                    const SizedBox(width: Spacing.sm),
+                    Expanded(child: Text(nameOf(id))),
+                    Text('${audit.scores[id]!.total.round()} / 100'),
+                  ]),
+                ),
+              for (final e in audit.rejected.entries)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(children: [
+                    Icon(Icons.remove_circle_outline, size: Sizes.iconSm, color: theme.colorScheme.outline),
+                    const SizedBox(width: Spacing.sm),
+                    Expanded(
+                      child: Text('${nameOf(e.key)}: skipped, ${e.value.map(_why).join(', ')}',
+                          style: theme.textTheme.bodySmall),
+                    ),
+                  ]),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

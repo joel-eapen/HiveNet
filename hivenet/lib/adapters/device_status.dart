@@ -1,33 +1,32 @@
-import 'package:battery_plus/battery_plus.dart';
+import 'package:flutter/services.dart';
 
-/// This phone's battery, as reported to peers that are deciding whether to
-/// store a copy here. Both values are best effort: null means "unknown", which
-/// peers treat as neutral rather than as a problem.
+/// This phone's battery, reported to peers deciding whether to store a copy
+/// here. Read through a small Android platform channel (see `MainActivity.kt`).
+///
+/// Both values are best effort: null means "unknown", which peers treat as
+/// neutral rather than as a problem.
 class DeviceStatus {
-  DeviceStatus([Battery? battery]) : _battery = battery ?? Battery();
+  DeviceStatus({MethodChannel? channel})
+      : _channel = channel ?? const MethodChannel('hivenet/device_status');
 
-  final Battery _battery;
+  final MethodChannel _channel;
 
-  Future<int?> batteryPercent() async {
+  /// `(percent, charging)`, either of which may be null.
+  Future<({int? percent, bool? charging})> battery() async {
     try {
-      final level = await _battery.batteryLevel;
-      return level < 0 ? null : level.clamp(0, 100);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// True when plugged in (charging or full on the charger).
-  Future<bool?> isCharging() async {
-    try {
-      final state = await _battery.batteryState;
-      return switch (state) {
-        BatteryState.charging || BatteryState.full || BatteryState.connectedNotCharging => true,
-        BatteryState.discharging => false,
-        BatteryState.unknown => null,
-      };
-    } catch (_) {
-      return null;
+      final result = await _channel.invokeMapMethod<String, Object?>('battery');
+      if (result == null) return (percent: null, charging: null);
+      final percent = result['percent'];
+      final charging = result['charging'];
+      return (
+        percent: percent is int ? percent.clamp(0, 100) : null,
+        charging: charging is bool ? charging : null,
+      );
+    } on PlatformException {
+      return (percent: null, charging: null);
+    } on MissingPluginException {
+      // Not running on Android (tests, previews).
+      return (percent: null, charging: null);
     }
   }
 }

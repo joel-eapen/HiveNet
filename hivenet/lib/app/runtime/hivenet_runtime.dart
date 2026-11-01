@@ -9,6 +9,7 @@ import 'package:hivenet_core/hivenet_core.dart';
 
 import '../../adapters/app_paths.dart';
 import '../../adapters/bonsoir_peer_discovery.dart';
+import '../../adapters/device_status.dart';
 import '../../adapters/flutter_image_compressor.dart';
 
 /// A device as the UI sees it.
@@ -112,6 +113,13 @@ class HiveNetRuntime {
   late final RetrievalService _retrieval;
   late final LocalFileStore files;
   final PeerDiscovery _discovery = BonsoirPeerDiscovery();
+  final DeviceStatus _deviceStatus = DeviceStatus();
+  final DateTime _startedAt = DateTime.now();
+
+  /// How the last few availability checks of each peer went (true = answered).
+  /// This is where a peer's "uptime" score comes from: observed, not claimed.
+  final Map<String, List<bool>> _probeHistory = {};
+  static const int _historyLength = 10;
   final ImageCompressor _compressor = const FlutterImageCompressor();
 
   final Map<String, PeerView> _peers = {};
@@ -597,6 +605,7 @@ class HiveNetRuntime {
       final p = inbox.current.payload;
       watch.stop();
       _failures[nodeId] = 0;
+      _record(nodeId, answered: true);
       view
         ..problem = null
         ..status = PeerStatus.online
@@ -614,9 +623,13 @@ class HiveNetRuntime {
           lastSeen: DateTime.now().toUtc(),
           status: PeerStatus.online,
           measuredLatencyMs: watch.elapsedMilliseconds,
-          reliabilityScore: 90,
+          reliabilityScore: _availability(nodeId),
+          batteryPercent: (p['battery'] as num?)?.toInt(),
+          isCharging: p['charging'] as bool?,
+          uptimeSeconds: (p['uptime'] as num?)?.toInt(),
         );
     } catch (e) {
+      _record(nodeId, answered: false);
       view.problem = _connectionProblem(e);
       final n = (_failures[nodeId] ?? 0) + 1;
       _failures[nodeId] = n;
@@ -648,6 +661,27 @@ class HiveNetRuntime {
     ];
   }
 
+  void _record(String nodeId, {required bool answered}) {
+    final history = _probeHistory.putIfAbsent(nodeId, () => []);
+    history.add(answered);
+    if (history.length > _historyLength) history.removeAt(0);
+  }
+
+  /// Percent of the last few checks this peer answered, or null before there is
+  /// enough to say anything (fewer than 3 checks).
+  double? _availability(String nodeId) {
+    final h = _probeHistory[nodeId];
+    if (h == null || h.length < 3) return null;
+    return 100 * h.where((ok) => ok).length / h.length;
+  }
+
+  /// How suitable [nodeId] is right now as a place to keep a copy, and why.
+  /// Null if it has not been measured. Uses the same scorer as uploads.
+  ScoreBreakdown? scoreOf(String nodeId) {
+    final t = _peers[nodeId]?.telemetry;
+    return t == null ? null : const DeterministicNodeScorer().breakdown(t);
+  }
+
   /// Words for why a paired device could not be reached, or null if it is just
   /// not answering (app closed, out of range).
   String? _connectionProblem(Object e) {
@@ -667,11 +701,16 @@ class HiveNetRuntime {
   Future<Map<String, Object?>> _telemetryReply() async {
     final used = await files.usedBytes();
     final reserved = await quota.reservedBytes;
+    final battery = await _deviceStatus.battery();
     return {
       'available': (contributionBytes - used - reserved).clamp(0, contributionBytes),
       'total': contributionBytes,
       'reserved': reserved,
-      'active': 0,
+      'active': _activeUploads.length,
+      // Used by the other phone to decide whether to store a copy here.
+      if (battery.percent != null) 'battery': battery.percent,
+      if (battery.charging != null) 'charging': battery.charging,
+      'uptime': DateTime.now().difference(_startedAt).inSeconds,
     };
   }
 

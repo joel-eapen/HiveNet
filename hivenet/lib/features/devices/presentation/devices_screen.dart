@@ -105,6 +105,18 @@ class _DeviceCard extends StatelessWidget {
                     child: Text('Last seen ${timeAgo(peer.lastSeen)}',
                         style: Theme.of(context).textTheme.bodySmall),
                   ),
+                if (peer.problem != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: Spacing.sm),
+                    child: Row(children: [
+                      Icon(Icons.link_off, size: Sizes.iconSm, color: Theme.of(context).colorScheme.error),
+                      const SizedBox(width: Spacing.xs),
+                      Expanded(
+                        child: Text('Cannot connect. Tap to pair again.',
+                            style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                      ),
+                    ]),
+                  ),
               ],
             ),
           ),
