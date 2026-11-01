@@ -15,7 +15,10 @@ PeerTelemetry peer(
   Duration age = const Duration(seconds: 2),
   int? latencyMs = 20,
   int? bandwidth = 12500000,
-  double reliability = 90,
+  double? reliability = 90,
+  int? battery,
+  bool? charging,
+  int? uptimeSeconds,
 }) =>
     PeerTelemetry(
       nodeId: id,
@@ -32,4 +35,7 @@ PeerTelemetry peer(
       measuredLatencyMs: latencyMs,
       bandwidthEstimate: bandwidth,
       reliabilityScore: reliability,
+      batteryPercent: battery,
+      isCharging: charging,
+      uptimeSeconds: uptimeSeconds,
     );

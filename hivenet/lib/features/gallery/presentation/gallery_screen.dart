@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -119,7 +121,7 @@ class _GalleryScreenState extends ConsumerState<GalleryScreen> {
                             return Card(
                               child: ListTile(
                                 contentPadding: const EdgeInsets.all(Spacing.md),
-                                leading: const Icon(Icons.lock_outline, size: Sizes.iconLg),
+                                leading: _Thumb(manifest: m, isMine: m.ownerNodeId == me),
                                 title: Text(m.fileName),
                                 subtitle: Padding(
                                   padding: const EdgeInsets.only(top: Spacing.sm),
@@ -142,6 +144,46 @@ class _GalleryScreenState extends ConsumerState<GalleryScreen> {
                         ),
             ),
           ],
+        );
+      },
+    );
+  }
+}
+
+
+/// Preview of this device's own image, or a lock for anyone else's. A thumbnail
+/// is image content, so another device's picture is not shown without its key.
+class _Thumb extends ConsumerWidget {
+  const _Thumb({required this.manifest, required this.isMine});
+
+  final ImageManifest manifest;
+  final bool isMine;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    const size = 56.0;
+    final rt = ref.watch(runtimeProvider);
+    if (!isMine || rt == null) {
+      return const SizedBox(width: size, height: size, child: Icon(Icons.lock_outline, size: Sizes.iconLg));
+    }
+    return FutureBuilder<String?>(
+      future: rt.ownPreviewPath(manifest.contentId),
+      builder: (context, snap) {
+        final path = snap.data;
+        if (path == null) {
+          return const SizedBox(width: size, height: size, child: Icon(Icons.image_outlined, size: Sizes.iconLg));
+        }
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(Radii.sm),
+          child: Image.file(
+            File(path),
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            cacheWidth: 160, // decode small: the list may hold many images
+            errorBuilder: (_, _, _) => const SizedBox(
+                width: size, height: size, child: Icon(Icons.broken_image_outlined, size: Sizes.iconLg)),
+          ),
         );
       },
     );

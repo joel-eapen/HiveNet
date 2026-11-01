@@ -36,9 +36,8 @@ class PlacementPlan {
   bool get isShortfall => targetNodeIds.length < desiredReplicas;
 }
 
-/// Deterministic placement (PRD FR-05): filter eligibility, score or accept
-/// ranking from a [DecisionModelAdapter], validate, return a plan. Always
-/// available locally; the AI never bypasses hard constraints.
+/// Chooses where to store copies: filter out unfit peers, score the rest, take
+/// the best. Plain code, always available locally (PRD FR-05).
 abstract interface class StorageRouter {
   Future<PlacementPlan> plan(
     PlacementRequest request,

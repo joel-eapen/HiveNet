@@ -18,7 +18,10 @@ class PeerTelemetry {
     required this.status,
     this.measuredLatencyMs,
     this.bandwidthEstimate,
-    this.reliabilityScore = 0,
+    this.reliabilityScore,
+    this.batteryPercent,
+    this.isCharging,
+    this.uptimeSeconds,
   });
 
   final String nodeId;
@@ -37,8 +40,18 @@ class PeerTelemetry {
   /// Estimated throughput in bytes per second.
   final int? bandwidthEstimate;
 
-  /// 0..100.
-  final double reliabilityScore;
+  /// Share of recent availability checks this peer answered, 0..100, as
+  /// observed by the device reading this. Null until enough checks were made.
+  final double? reliabilityScore;
+
+  /// Battery level 0..100 as reported by the peer, or null if unknown.
+  final int? batteryPercent;
+
+  /// Whether the peer is plugged in, or null if unknown.
+  final bool? isCharging;
+
+  /// How long the peer's app has been running without a break, in seconds.
+  final int? uptimeSeconds;
 
   Json toJson() => {
         'nodeId': nodeId,
@@ -55,6 +68,9 @@ class PeerTelemetry {
         'measuredLatencyMs': measuredLatencyMs,
         'bandwidthEstimate': bandwidthEstimate,
         'reliabilityScore': reliabilityScore,
+        'batteryPercent': batteryPercent,
+        'isCharging': isCharging,
+        'uptimeSeconds': uptimeSeconds,
       };
 
   factory PeerTelemetry.fromJson(Json json) => PeerTelemetry(
@@ -71,6 +87,9 @@ class PeerTelemetry {
         status: enumFromWire(PeerStatus.values, json['status']! as String),
         measuredLatencyMs: json['measuredLatencyMs'] as int?,
         bandwidthEstimate: json['bandwidthEstimate'] as int?,
-        reliabilityScore: (json['reliabilityScore'] as num? ?? 0).toDouble(),
+        reliabilityScore: (json['reliabilityScore'] as num?)?.toDouble(),
+        batteryPercent: json['batteryPercent'] as int?,
+        isCharging: json['isCharging'] as bool?,
+        uptimeSeconds: json['uptimeSeconds'] as int?,
       );
 }

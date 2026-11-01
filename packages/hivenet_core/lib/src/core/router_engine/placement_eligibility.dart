@@ -13,6 +13,7 @@ enum IneligibleReason {
   incompatibleProtocol,
   overloaded,
   insufficientStorage,
+  lowBattery,
 }
 
 /// Hard constraints (PRD FR-05). These are never relaxed by scoring or by a
@@ -23,6 +24,7 @@ class EligibilityPolicy {
     this.maxActiveTransfers = 2,
     this.safetyMarginBytes = 64 * 1024 * 1024,
     this.protocolVersion = kProtocolVersion,
+    this.minBatteryPercent = 15,
   });
 
   /// Telemetry older than this is an estimate too old to rely on. Defaults to
@@ -37,6 +39,11 @@ class EligibilityPolicy {
   /// fills its disk to the last byte.
   final int safetyMarginBytes;
   final int protocolVersion;
+
+  /// A phone below this level that is not charging is skipped: it may switch
+  /// off and take its copy offline. Unknown battery is not penalized here (the
+  /// score treats it as neutral).
+  final int minBatteryPercent;
 
   /// Policy matching a [NetworkConfig].
   factory EligibilityPolicy.fromNetwork(NetworkConfig config,
@@ -97,6 +104,11 @@ EligibilityResult filterEligible({
     final free = peer.availableStorageBytes - peer.reservedStorageBytes;
     if (free - policy.safetyMarginBytes < request.sizeBytes) {
       reasons.add(IneligibleReason.insufficientStorage);
+    }
+
+    final battery = peer.batteryPercent;
+    if (battery != null && peer.isCharging != true && battery < policy.minBatteryPercent) {
+      reasons.add(IneligibleReason.lowBattery);
     }
 
     if (reasons.isEmpty) {

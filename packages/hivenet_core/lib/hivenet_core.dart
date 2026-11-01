@@ -36,7 +36,6 @@ export 'src/core/networking/socket_server.dart';
 
 // Router engine
 export 'src/core/router_engine/channel_replica_transport.dart';
-export 'src/core/router_engine/decision_model_adapter.dart';
 export 'src/core/router_engine/default_replication_manager.dart';
 export 'src/core/router_engine/deterministic_storage_router.dart';
 export 'src/core/router_engine/local_quota_manager.dart';

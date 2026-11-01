@@ -23,6 +23,7 @@ class ChannelReplicaTransport implements ReplicaTransport {
     required this.chunks,
     required this.localNodeId,
     this.replyTimeout = const Duration(seconds: 30),
+    this.onProgress,
   });
 
   final DialPeer dial;
@@ -31,7 +32,14 @@ class ChannelReplicaTransport implements ReplicaTransport {
   /// peers'.
   final ChunkManager chunks;
   final String localNodeId;
+
+  /// Size of every chunk but the last; must match the peers' chunk size.
+  final int chunkSizeBytes = 1024 * 1024;
   final Duration replyTimeout;
+
+  /// Called after each acknowledged chunk with how much of the object the peer
+  /// now holds, for progress bars. Includes data a resumed upload already had.
+  final void Function(String nodeId, int sentBytes, int totalBytes)? onProgress;
 
   final Map<String, _Session> _sessions = {};
 
@@ -83,6 +91,8 @@ class ChannelReplicaTransport implements ReplicaTransport {
 
     // Start where the peer says it already has data; this is how an
     // interrupted upload resumes.
+    var sent = (nextIndex * chunkSizeBytes).clamp(0, source.sizeBytes);
+    onProgress?.call(nodeId, sent, source.sizeBytes);
     await for (final chunk in chunks.readChunks(source.objectPath, startIndex: nextIndex)) {
       final ack = await session.call(
         MessageEnvelope(
@@ -98,6 +108,8 @@ class ChannelReplicaTransport implements ReplicaTransport {
       if (ack.type != MessageType.chunkAck || ack.payload['index'] != chunk.index) {
         throw _failure(ack);
       }
+      sent += chunk.bytes.length;
+      onProgress?.call(nodeId, sent, source.sizeBytes);
     }
   }
 

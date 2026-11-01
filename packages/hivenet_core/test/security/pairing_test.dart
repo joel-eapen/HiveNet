@@ -202,6 +202,44 @@ void main() {
     });
   });
 
+  group('the final answer survives the connection closing', () {
+    test('the joiner receives it even though the inviter closes straight after', () async {
+      // The inviter's last act is to send "done" and close. If close() threw
+      // away unsent data, the joiner saw a disconnect and reported failure while
+      // the inviter had already saved the device.
+      final ch = await channels();
+      final r = await runBoth(ch);
+      expect(r[0], isA<TrustedDevice>(), reason: 'joiner must see success, got ${r[0]}');
+      expect(r[1], isA<TrustedDevice>());
+      expect(joinerSaved, hasLength(1));
+      expect(inviterSaved, hasLength(1));
+    });
+
+    test('the scanning phone is asked before the other phone has answered', () async {
+      // The joiner already knows who it is pairing with from the code, so its
+      // prompt must not wait for the inviter's user.
+      final ch = await channels();
+      var joinerAsked = false;
+      var inviterAsked = false;
+      var joinerAskedFirst = false;
+      final joinerRun = runPairingAsJoiner(
+        channel: ch.joiner, invite: invite, self: joiner.identity,
+        confirm: (_, _) { joinerAsked = true; joinerAskedFirst = !inviterAsked; return true; },
+        save: (d) async => joinerSaved.add(d),
+        timeout: const Duration(seconds: 3), clock: () => t0,
+      ).then<Object>((v) => v, onError: (Object e) => e);
+      final inviterRun = runPairingAsInviter(
+        channel: ch.inviter, state: state, self: inviter.identity,
+        confirm: (_, _) { inviterAsked = true; return true; },
+        save: (d) async => inviterSaved.add(d),
+        timeout: const Duration(seconds: 3), clock: () => t0,
+      ).then<Object>((v) => v, onError: (Object e) => e);
+      await Future.wait([joinerRun, inviterRun]);
+      expect(joinerAsked && inviterAsked, isTrue);
+      expect(joinerAskedFirst, isTrue);
+    });
+  });
+
   group('refusals', () {
     test('if the inviter declines, nothing is saved anywhere', () async {
       final r = await runBoth(await channels(), inviterAccepts: false);

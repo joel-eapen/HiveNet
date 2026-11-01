@@ -10,6 +10,7 @@ import 'package:hivenet_core/hivenet_core.dart';
 import '../../../adapters/flutter_image_compressor.dart' show looksTruncated;
 import '../../../app/providers.dart';
 import '../../../app/theme/spacing_tokens.dart';
+import '../../../shared/format.dart';
 import '../../../shared/widgets/status_chip.dart';
 
 /// FR-12 screen 6: choose an image, importance and who can view it, then upload.
@@ -230,7 +231,14 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                 ),
                 if (_stage != null) ...[
                   const SizedBox(height: Spacing.xl),
-                  _Progress(stage: _stage!, job: _job, running: _running),
+                  _Progress(
+                    stage: _stage!,
+                    job: _job,
+                    running: _running,
+                    progress: rt.uploadProgress,
+                    nameOf: rt.nameOf,
+                    describe: rt.describeFailure,
+                  ),
                 ],
                 if (_error != null)
                   Padding(
@@ -252,11 +260,21 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
 }
 
 class _Progress extends StatelessWidget {
-  const _Progress({required this.stage, required this.job, required this.running});
+  const _Progress({
+    required this.stage,
+    required this.job,
+    required this.running,
+    required this.progress,
+    required this.nameOf,
+    required this.describe,
+  });
 
   final UploadStage stage;
   final UploadJob? job;
   final bool running;
+  final ValueNotifier<Map<String, ({int sent, int total})>> progress;
+  final String Function(String nodeId) nameOf;
+  final String Function(String? reason) describe;
 
   @override
   Widget build(BuildContext context) {
@@ -296,9 +314,34 @@ class _Progress extends StatelessWidget {
               const SizedBox(width: Spacing.sm),
               Expanded(child: Text(headline, style: theme.textTheme.titleMedium)),
             ]),
-            if (running) const Padding(
-              padding: EdgeInsets.only(top: Spacing.md),
-              child: LinearProgressIndicator(),
+            if (running && stage != UploadStage.replicating)
+              const Padding(
+                padding: EdgeInsets.only(top: Spacing.md),
+                child: LinearProgressIndicator(),
+              ),
+            // One bar per storage device, with its name.
+            ValueListenableBuilder(
+              valueListenable: progress,
+              builder: (context, map, _) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final e in map.entries)
+                    Padding(
+                      padding: const EdgeInsets.only(top: Spacing.md),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('${nameOf(e.key)}  ·  ${formatBytes(e.value.sent)} of ${formatBytes(e.value.total)}',
+                              style: theme.textTheme.bodySmall),
+                          const SizedBox(height: Spacing.xs),
+                          LinearProgressIndicator(
+                            value: e.value.total == 0 ? null : e.value.sent / e.value.total,
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
             ),
             if (state != null) ...[
               const SizedBox(height: Spacing.md),
@@ -307,14 +350,15 @@ class _Progress extends StatelessWidget {
             if (done && state != UploadState.completed && job?.failureReason != null)
               Padding(
                 padding: const EdgeInsets.only(top: Spacing.md),
-                child: Text(_reason(job!.failureReason!), style: theme.textTheme.bodySmall),
+                child: Text(_reason(describe(job!.failureReason)), style: theme.textTheme.bodySmall),
               ),
             if (done && state != UploadState.completed)
               Padding(
                 padding: const EdgeInsets.only(top: Spacing.sm),
                 child: Text(
                   'HiveNet will not call this safe until the required copies are verified. '
-                  'Open Activity to retry when more devices are online.',
+                  'It keeps trying in the background whenever a paired phone is online, '
+                  'or open Activity to retry now.',
                   style: theme.textTheme.bodySmall,
                 ),
               ),
@@ -324,14 +368,28 @@ class _Progress extends StatelessWidget {
     );
   }
 
+  /// Turns the technical reason into sentences. Device names stay in.
   String _reason(String raw) {
     if (raw.contains('no eligible storage peers')) {
-      return 'No paired device was online to store a copy.';
+      return 'No paired phone was online with room to store a copy.';
     }
-    if (raw.contains('storage_full')) return 'A device had no room left.';
-    if (raw.contains('unreachable') || raw.contains('timed out')) {
-      return 'A device could not be reached.';
+    final lines = <String>[];
+    for (final part in raw.split('; ')) {
+      final colon = part.indexOf(':');
+      final who = colon > 0 ? part.substring(0, colon) : 'A device';
+      final why = colon > 0 ? part.substring(colon + 1).trim() : part;
+      if (why.contains('storage_full')) {
+        lines.add('$who has no room left.');
+      } else if (why.contains('timed out')) {
+        lines.add('$who took too long to respond.');
+      } else if (why.contains('unreachable') || why.contains('peer_disconnected')) {
+        lines.add('$who could not be reached.');
+      } else if (why.contains('hash verification')) {
+        lines.add('$who stored data that failed verification, so it was not counted.');
+      } else {
+        lines.add('$who could not complete the transfer.');
+      }
     }
-    return 'Some devices could not complete the transfer.';
+    return lines.join(' ');
   }
 }

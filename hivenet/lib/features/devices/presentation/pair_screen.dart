@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import 'package:hivenet_core/hivenet_core.dart' show HiveError;
+
 import '../../../app/providers.dart';
 import '../../../app/runtime/hivenet_runtime.dart';
 import '../../../app/theme/spacing_tokens.dart';
@@ -277,6 +279,7 @@ class _ScanCodeState extends ConsumerState<_ScanCode> {
       context.go('/devices');
     } catch (e) {
       if (!mounted) return;
+      debugPrint('pairing failed: $e');
       setState(() {
         _busy = false;
         _message = _friendly(e);
@@ -310,8 +313,17 @@ class _ScanCodeState extends ConsumerState<_ScanCode> {
     if (text.contains('SocketException') || text.contains('timed out')) {
       return 'Could not reach the other phone. Check that both are on the same network and the code is still showing.';
     }
-    if (text.contains('declined')) return 'Pairing was declined.';
-    return 'Pairing did not complete. No device was added.';
+    if (text.contains('declined')) return 'Pairing was declined on one of the phones.';
+    if (text.contains('different device') || text.contains('does not match the expected')) {
+      return 'That is not the phone whose code you scanned. No device was added.';
+    }
+    if (text.contains('disconnected') || text.contains('closed the connection')) {
+      return 'The other phone disconnected before pairing finished. '
+          'Check on its Devices screen whether it was added, then try again if not.';
+    }
+    final detail = e is HiveError ? e.technicalDetails : null;
+    return 'Pairing did not complete. No device was added.'
+        '${detail == null ? '' : ' ($detail)'}';
   }
 
   @override

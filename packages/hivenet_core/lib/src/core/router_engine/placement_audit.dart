@@ -1,29 +1,12 @@
 import '../../shared/models/enums.dart';
 import '../../shared/models/peer_telemetry.dart';
 import '../../shared/utils/json_helpers.dart';
+import 'node_scorer.dart';
 import 'placement_eligibility.dart';
 
-/// What happened to the optional decision model's recommendation.
-enum ModelOutcome {
-  /// No model configured (or the no-op model): deterministic order was used.
-  notUsed,
-
-  /// The recommendation passed validation and was used.
-  accepted,
-
-  /// The recommendation named an unknown or duplicate peer and was discarded.
-  rejectedInvalid,
-
-  /// The model threw.
-  failed,
-
-  /// The model did not answer in time.
-  timedOut,
-}
-
-/// Debug record of one placement decision (PRD FR-05): the input snapshot, the
-/// model's recommendation, the validator result and the final selection.
-/// Contains telemetry and metadata only, never image content.
+/// Why a placement came out the way it did (PRD FR-05): who was considered, who
+/// was ruled out and why, each candidate's score, and who was chosen. Telemetry
+/// and numbers only, never image content.
 class PlacementAudit {
   const PlacementAudit({
     required this.createdAt,
@@ -32,11 +15,9 @@ class PlacementAudit {
     required this.desiredReplicas,
     required this.inputSnapshot,
     required this.rejected,
-    required this.deterministicOrder,
-    required this.modelOutcome,
+    required this.scores,
+    required this.ranking,
     required this.selected,
-    this.modelRecommendation,
-    this.modelNote,
   });
 
   final DateTime createdAt;
@@ -44,11 +25,15 @@ class PlacementAudit {
   final Importance importance;
   final int desiredReplicas;
   final List<PeerTelemetry> inputSnapshot;
+
+  /// nodeId -> every reason it was ruled out.
   final Map<String, Set<IneligibleReason>> rejected;
-  final List<String> deterministicOrder;
-  final ModelOutcome modelOutcome;
-  final List<String>? modelRecommendation;
-  final String? modelNote;
+
+  /// nodeId -> score breakdown, for every peer that passed the hard filter.
+  final Map<String, ScoreBreakdown> scores;
+
+  /// Eligible node ids, best score first.
+  final List<String> ranking;
   final List<String> selected;
 
   Json toJson() => {
@@ -58,13 +43,10 @@ class PlacementAudit {
         'desiredReplicas': desiredReplicas,
         'inputSnapshot': [for (final p in inputSnapshot) p.toJson()],
         'rejected': {
-          for (final e in rejected.entries)
-            e.key: [for (final r in e.value) r.name],
+          for (final e in rejected.entries) e.key: [for (final r in e.value) r.name],
         },
-        'deterministicOrder': deterministicOrder,
-        'modelOutcome': modelOutcome.name,
-        'modelRecommendation': modelRecommendation,
-        'modelNote': modelNote,
+        'scores': {for (final e in scores.entries) e.key: e.value.toJson()},
+        'ranking': ranking,
         'selected': selected,
       };
 }

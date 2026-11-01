@@ -121,6 +121,18 @@ class HiveNetRuntime {
   /// Set while a pairing needs the user's decision; the UI shows a dialog.
   final ValueNotifier<PairingPrompt?> pendingPairing = ValueNotifier(null);
 
+  /// Live upload progress, device by device: nodeId -> (sent, total) bytes.
+  /// Cleared when an upload ends.
+  final ValueNotifier<Map<String, ({int sent, int total})>> uploadProgress =
+      ValueNotifier(const {});
+
+  void _onUploadProgress(String nodeId, int sent, int total) {
+    uploadProgress.value = {...uploadProgress.value, nodeId: (sent: sent, total: total)};
+  }
+
+  /// Name to show for a device in messages.
+  String nameOf(String nodeId) => _peers[nodeId]?.name ?? 'another device';
+
   /// Set when a pairing that another phone started with our code finishes or
   /// fails, so the screen showing the code can say what happened.
   final ValueNotifier<PairingOutcome?> lastPairing = ValueNotifier(null);
@@ -172,6 +184,7 @@ class HiveNetRuntime {
       dial: dial,
       chunks: chunks,
       localNodeId: identity.nodeId,
+      onProgress: _onUploadProgress,
     );
     _uploads = UploadService(
       localNodeId: identity.nodeId,
@@ -189,10 +202,7 @@ class HiveNetRuntime {
         store: _replicationStore,
       ),
       store: _replicationStore,
-      peerTelemetry: () async => [
-        for (final p in _peers.values)
-          if (p.paired && p.telemetry != null) p.telemetry!,
-      ],
+      peerTelemetry: _freshTelemetry,
     );
     _retrieval = RetrievalService(
       localNodeId: identity.nodeId,
@@ -216,8 +226,11 @@ class HiveNetRuntime {
     await _server.start();
 
     await _loadPairedPeers();
-    _probeTimer = Timer.periodic(const Duration(seconds: 8), (_) => _probeAll());
-    unawaited(_probeAll());
+    _probeTimer = Timer.periodic(const Duration(seconds: 8), (_) async {
+      await _probeAll();
+      unawaited(_resumeUnfinished());
+    });
+    unawaited(_probeAll().then((_) => _resumeUnfinished()));
     unawaited(startDiscovery());
   }
 
@@ -610,6 +623,24 @@ class HiveNetRuntime {
     }
   }
 
+  /// Current numbers for paired devices. Probes any device not measured in the
+  /// last few seconds first, so a first upload right after pairing does not
+  /// see "nobody available" just because the periodic probe has not run yet.
+  Future<List<PeerTelemetry>> _freshTelemetry() async {
+    final stale = [
+      for (final p in _peers.values)
+        if (p.paired &&
+            (p.telemetry == null ||
+                DateTime.now().difference(p.telemetry!.lastSeen) > const Duration(seconds: 10)))
+          p.nodeId,
+    ];
+    await Future.wait([for (final id in stale) _probe(id)]);
+    return [
+      for (final p in _peers.values)
+        if (p.paired && p.status == PeerStatus.online && p.telemetry != null) p.telemetry!,
+    ];
+  }
+
   Future<Map<String, Object?>> _telemetryReply() async {
     final used = await files.usedBytes();
     final reserved = await quota.reservedBytes;
@@ -688,6 +719,8 @@ class HiveNetRuntime {
       outputPath: '${paths.layout.outgoingDir}/compress-$stamp.jpg',
       importance: importance,
     ));
+    uploadProgress.value = const {};
+    String? activeId;
     try {
       yield* _uploads.upload(UploadRequest(
         compressedPath: compressed.path,
@@ -697,15 +730,67 @@ class HiveNetRuntime {
         height: compressed.height,
         importance: importance,
         visibility: visibility,
-      ));
+      )).map((u) {
+        final id = u.contentId;
+        if (activeId == null && id != null) {
+          activeId = id;
+          _activeUploads.add(id);
+        }
+        return u;
+      });
     } finally {
+      if (activeId != null) _activeUploads.remove(activeId);
+      uploadProgress.value = const {};
       final f = File(compressed.path);
       if (await f.exists()) await f.delete();
     }
   }
 
+  bool _resuming = false;
+  final Map<String, DateTime> _lastResumeAttempt = {};
+
+  /// Content ids with a transfer running right now, so a background resume can
+  /// never start a second copy of the same upload.
+  final Set<String> _activeUploads = {};
+
+  /// Finishes uploads that stopped short: after an app restart, or because a
+  /// device was away. Runs quietly in the background, at most once per job per
+  /// minute, and only when at least one paired device is online.
+  Future<void> _resumeUnfinished() async {
+    if (_resuming) return;
+    if (!_peers.values.any((p) => p.paired && p.status == PeerStatus.online)) return;
+    _resuming = true;
+    try {
+      for (final job in await _replicationStore.unfinishedJobs()) {
+        final id = job.contentId;
+        if (id == null || job.status == UploadState.created) continue;
+        final last = _lastResumeAttempt[job.jobId];
+        if (last != null && DateTime.now().difference(last) < const Duration(minutes: 1)) continue;
+        if (_activeUploads.contains(id)) continue;
+        if (!await File(paths.layout.outgoingPath(id)).exists()) continue;
+        _lastResumeAttempt[job.jobId] = DateTime.now();
+        try {
+          await for (final _ in retryUpload(id)) {}
+        } catch (_) {
+          // Try again on a later pass.
+        }
+      }
+    } finally {
+      _resuming = false;
+    }
+  }
+
   /// Retries replication for a gallery entry that is not fully replicated.
   Stream<UploadUpdate> retryUpload(String contentId) async* {
+    if (!_activeUploads.add(contentId)) return; // already running
+    try {
+      yield* _retryUpload(contentId);
+    } finally {
+      _activeUploads.remove(contentId);
+    }
+  }
+
+  Stream<UploadUpdate> _retryUpload(String contentId) async* {
     final unfinished = await _replicationStore.unfinishedJobs();
     // Re-run through the same pipeline from the saved encrypted copy.
     final m = await manifests.byId(contentId);
@@ -724,6 +809,7 @@ class HiveNetRuntime {
       dial: dial,
       chunks: FileChunkManager(paths.layout),
       localNodeId: identity.nodeId,
+      onProgress: _onUploadProgress,
     );
     final source = ReplicationSource(
       contentId: contentId,
@@ -739,6 +825,43 @@ class HiveNetRuntime {
     }
     await manifests.setAvailability(contentId, UploadService.availabilityFor(last.status));
     yield UploadUpdate(UploadStage.finished, contentId: contentId, job: last);
+  }
+
+  /// Replaces node ids in a job's failure text with device names.
+  String describeFailure(String? reason) {
+    if (reason == null) return '';
+    return reason.split('; ').map((part) {
+      final colon = part.indexOf(':');
+      if (colon <= 0) return part;
+      final id = part.substring(0, colon);
+      return _peers.containsKey(id) ? '${nameOf(id)}${part.substring(colon)}' : part;
+    }).join('; ');
+  }
+
+  /// A small decrypted copy of one of this device's OWN images, or null.
+  /// Built from the encrypted original kept here and the key stored here; it
+  /// never involves another device. Images owned by someone else get no
+  /// preview until per-viewer thumbnails exist.
+  Future<String?> ownPreviewPath(String contentId) async {
+    final cached = File('${paths.layout.retrievedCacheDir}/$contentId.img');
+    if (await cached.exists()) return cached.path;
+    final original = File(paths.layout.outgoingPath(contentId));
+    final key = await keys.read(UploadService.keyName(contentId));
+    final m = await manifests.byId(contentId);
+    if (!await original.exists() || key == null || m?.ciphertextHash == null) return null;
+    try {
+      final cipher = await original.readAsBytes();
+      if (await const Sha256IntegrityChecker().sha256OfBytes(cipher) != m!.ciphertextHash) {
+        return null;
+      }
+      final plain = await AesGcmEncryptionService().decrypt(ciphertext: cipher, imageKey: key);
+      if (await const Sha256IntegrityChecker().sha256OfBytes(plain) != contentId) return null;
+      await cached.parent.create(recursive: true);
+      await cached.writeAsBytes(plain, flush: true);
+      return cached.path;
+    } catch (_) {
+      return null;
+    }
   }
 
   Stream<RetrievalSession> fetchImage(String contentId) => _retrieval.fetch(contentId);

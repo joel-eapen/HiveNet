@@ -67,7 +67,7 @@ class _ActivityDetailsScreenState extends ConsumerState<ActivityDetailsScreen> {
                   const SizedBox(height: Spacing.lg),
                   Text('What went wrong', style: theme.textTheme.titleSmall),
                   const SizedBox(height: Spacing.xs),
-                  Text(job.failureReason!, style: theme.textTheme.bodySmall),
+                  Text(ref.read(runtimeProvider)?.describeFailure(job.failureReason) ?? job.failureReason!, style: theme.textTheme.bodySmall),
                 ],
                 if (job.contentId != null &&
                     (job.status == UploadState.underReplicated ||

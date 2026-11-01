@@ -31,14 +31,11 @@ void main() {
       expect(n.offlineTimeout > n.heartbeatInterval, isTrue);
     });
 
-    test('score weights sum to 1 (FR-05)', () {
+    test('score weights sum to 1', () {
       const w = ScoreWeights();
-      expect(w.capacity, 0.35);
-      expect(w.latency, 0.30);
-      expect(w.reliability, 0.20);
-      expect(w.bandwidth, 0.15);
-      expect(w.capacity + w.latency + w.reliability + w.bandwidth,
-          closeTo(1.0, 1e-9));
+      expect([w.capacity, w.latency, w.battery, w.uptime, w.bandwidth, w.load],
+          [0.25, 0.20, 0.20, 0.20, 0.10, 0.05]);
+      expect(w.total, closeTo(1.0, 1e-9));
     });
 
     test('replication factors (FR-04)', () {
@@ -81,16 +78,6 @@ void main() {
       expect(() => const UnimplementedMessageFraming().encode(
           const MessageEnvelope(type: MessageType.heartbeat, requestId: 'r', senderNodeId: 'n')),
           throwsUnimplementedError);
-    });
-  });
-
-  group('decision model (FR-05, FR-09A)', () {
-    test('NoopDecisionModel preserves order', () async {
-      final ranked = await const NoopDecisionModel().rank(
-        const PlacementRequest(sizeBytes: 1, importance: Importance.normal),
-        [peer('b'), peer('a'), peer('c')],
-      );
-      expect(ranked, ['b', 'a', 'c']);
     });
   });
 
