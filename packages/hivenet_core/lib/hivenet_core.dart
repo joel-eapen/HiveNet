@@ -24,6 +24,7 @@ export 'src/core/compression/thumbnail_generator.dart';
 
 // Networking
 export 'src/core/networking/heartbeat_service.dart';
+export 'src/core/networking/length_prefixed_framing.dart';
 export 'src/core/networking/message_framing.dart';
 export 'src/core/networking/message_protocol.dart';
 export 'src/core/networking/network_config.dart';
@@ -47,11 +48,15 @@ export 'src/core/retrieval/replica_selector.dart';
 
 // Storage
 export 'src/core/storage/chunk_manager.dart';
+export 'src/core/storage/file_chunk_manager.dart';
 export 'src/core/storage/file_store.dart';
+export 'src/core/storage/local_file_store.dart';
+export 'src/core/storage/sha256_integrity_checker.dart';
 export 'src/core/storage/integrity_checker.dart';
 export 'src/core/storage/storage_layout.dart';
 
 // Security
+export 'src/core/security/aes_gcm_encryption_service.dart';
 export 'src/core/security/device_identity.dart';
 export 'src/core/security/encryption_service.dart';
 export 'src/core/security/key_store.dart';

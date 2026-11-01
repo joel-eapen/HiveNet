@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
 import '../../../shared/widgets/placeholder_section.dart';
@@ -19,6 +20,12 @@ class SettingsScreen extends ConsumerWidget {
           subtitle: const Text('Fixture data for demos, clearly labelled.'),
           value: demo,
           onChanged: (v) => ref.read(demoModeProvider.notifier).set(v),
+        ),
+        ListTile(
+          leading: const Icon(Icons.science_outlined),
+          title: const Text('Feasibility spike (developer)'),
+          subtitle: const Text('Milestone 0 checks on real devices'),
+          onTap: () => context.push('/spike'),
         ),
       ],
     );

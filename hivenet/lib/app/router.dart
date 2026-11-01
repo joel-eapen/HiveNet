@@ -15,6 +15,7 @@ import '../features/transfers/presentation/activity_details_screen.dart';
 import '../features/transfers/presentation/activity_screen.dart';
 import '../features/uploads/presentation/upload_screen.dart';
 import '../shared/widgets/empty_state_view.dart';
+import '../spike/spike_screen.dart';
 import 'app_shell.dart';
 import 'providers.dart';
 
@@ -23,6 +24,7 @@ abstract final class Routes {
   static const gallery = '/gallery';
   static const upload = '/upload';
   static const pair = '/pair';
+  static const spike = '/spike';
 }
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -60,6 +62,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: Routes.upload, builder: (_, _) => const UploadScreen()),
       GoRoute(path: Routes.pair, builder: (_, _) => const PairScreen()),
+      // Milestone 0 developer spike; remove once the compatibility gate passes.
+      GoRoute(path: Routes.spike, builder: (_, _) => const SpikeScreen()),
       StatefulShellRoute.indexedStack(
         builder: (context, state, shell) => AppShell(navigationShell: shell),
         branches: [
