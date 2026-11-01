@@ -67,6 +67,19 @@ void main() {
     });
   });
 
+  group('battery', () {
+    test('below the minimum and not charging is rejected', () {
+      expect(run([peer('a', battery: 14)]).rejected['a'], contains(IneligibleReason.lowBattery));
+      expect(run([peer('a', battery: 15)]).eligible, hasLength(1), reason: 'at the minimum is fine');
+    });
+    test('charging overrides a low level', () {
+      expect(run([peer('a', battery: 3, charging: true)]).eligible, hasLength(1));
+    });
+    test('unknown is not rejected', () {
+      expect(run([peer('a', battery: null)]).eligible, hasLength(1));
+    });
+  });
+
   test('excluded nodes are rejected', () {
     final r = run([peer('self'), peer('other')],
         req: const PlacementRequest(

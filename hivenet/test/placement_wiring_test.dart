@@ -72,10 +72,6 @@ void main() {
     expect((await router.plan(request, [peer('a'), peer('b')])).targetNodeIds, ['a']);
   });
 
-  test('the AI ranker is the no-op model unless one is configured', () {
-    expect(container.read(decisionModelProvider), isA<NoopDecisionModel>());
-  });
-
   test('replication store and quota manager are real implementations', () async {
     expect(container.read(replicationStoreProvider), isA<DriftReplicationStore>());
     expect(container.read(nodeScorerProvider), isA<DeterministicNodeScorer>());

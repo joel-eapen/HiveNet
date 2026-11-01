@@ -83,6 +83,7 @@ class PeerStorageService {
     MessageType.accessGrant,
     MessageType.accessRevoke,
     MessageType.keyDelivery,
+    MessageType.pairRequest, // a known device pairing again
   };
 
   static final RegExp _safeId = RegExp(r'^[A-Za-z0-9_-]{1,64}$');

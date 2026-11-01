@@ -271,13 +271,20 @@ Future<TrustedDevice> runPairingAsInviter({
   required ConfirmPeer confirm,
   required SaveTrustedDevice save,
   void Function(int port)? onPeerPort,
+
+  /// The pairing request, if another reader already took it off the channel
+  /// (a trusted device re-pairing reaches us through the storage service).
+  MessageEnvelope? firstRequest,
   Duration timeout = const Duration(minutes: 2),
   DateTime Function()? clock,
 }) async {
   final now = clock ?? DateTime.now;
-  final inbox = StreamIterator(channel.messages);
+  final inbox = firstRequest == null ? StreamIterator(channel.messages) : null;
   try {
-    final request = await _next(inbox, MessageType.pairRequest, timeout);
+    final request = firstRequest ?? await _next(inbox!, MessageType.pairRequest, timeout);
+    if (request.type != MessageType.pairRequest) {
+      throw _refused('unexpected ${request.type.wire}');
+    }
     final proof = _decode(request.payload['proof']);
     final valid = state.verifyAndConsume(
       proof: proof,
@@ -311,7 +318,7 @@ Future<TrustedDevice> runPairingAsInviter({
     }));
     return device;
   } finally {
-    await inbox.cancel();
+    await inbox?.cancel();
     await channel.close();
   }
 }
@@ -339,6 +346,21 @@ Uint8List _decode(Object? v) {
 }
 
 bool _equalBytes(Uint8List a, Uint8List b) => _constantTimeEqual(a, b);
+
+/// Wraps the normal check for the device that is SHOWING a pairing code.
+///
+/// While a code is live, a device that was previously removed is treated as a
+/// stranger instead of being refused, so it can pair again by scanning the new
+/// code. It still has to prove it saw the code, so this opens nothing else:
+/// unknown devices can reach only the pairing step. With no live code, removed
+/// devices stay refused.
+PeerVerifier pairingAwareVerifier(PeerVerifier base, bool Function() codeIsLive) {
+  return (nodeId, publicKey) async {
+    final trust = await base(nodeId, publicKey);
+    if (trust == PeerTrust.rejected && codeIsLive()) return PeerTrust.unknown;
+    return trust;
+  };
+}
 
 /// Builds the connection-time check from stored devices: trusted only if the
 /// device is paired, not revoked, and presents the key it paired with.

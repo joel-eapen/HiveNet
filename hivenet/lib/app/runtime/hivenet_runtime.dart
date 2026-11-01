@@ -32,6 +32,9 @@ class PeerView {
   int? port;
   PeerTelemetry? telemetry;
   DateTime? lastSeen;
+
+  /// Why this device cannot be reached, when the cause is known and fixable.
+  String? problem;
 }
 
 class StorageStats {
@@ -219,7 +222,7 @@ class HiveNetRuntime {
     _server = PeerServer(
       identity: identity,
       signer: _signer,
-      verifier: _verifier,
+      verifier: pairingAwareVerifier(_verifier, () => _invite?.isUsable ?? false),
       onChannel: _onChannel,
       allowUnknown: () => _invite?.isUsable ?? false,
     );
@@ -291,11 +294,9 @@ class HiveNetRuntime {
       trustStatus: TrustStatus.revoked.wire,
       revokedAt: Value(DateTime.now().toUtc()),
     ));
-    final view = _peers[nodeId];
-    if (view != null) {
-      view.status = PeerStatus.offline;
-      _emit();
-    }
+    _peers.remove(nodeId);
+    _failures.remove(nodeId);
+    _emit();
   }
 
   // ---------------------------------------------------------- connecting
@@ -408,9 +409,11 @@ class HiveNetRuntime {
       socket,
       identity: identity,
       signer: _signer,
-      verifier: _verifier,
+      // Whatever we remember about this device, scanning its fresh code is an
+      // explicit choice. The code pins the exact key, which is what protects us.
+      verifier: (_, _) => PeerTrust.unknown,
       allowUnknown: true,
-      expectedPeerKey: invite.publicKey, // the code pins who we must be talking to
+      expectedPeerKey: invite.publicKey,
     );
     final device = await runPairingAsJoiner(
       channel: channel,
@@ -440,6 +443,8 @@ class HiveNetRuntime {
         displayName: d.displayName,
         pairedAt: d.pairedAt,
         trustStatus: TrustStatus.paired.wire,
+        // Pairing again after a removal must lift the removal.
+        revokedAt: const Value<DateTime?>(null),
       ));
 
   Future<void> _rememberAddress(String nodeId, String name, String host, int? port) async {
@@ -593,6 +598,7 @@ class HiveNetRuntime {
       watch.stop();
       _failures[nodeId] = 0;
       view
+        ..problem = null
         ..status = PeerStatus.online
         ..lastSeen = DateTime.now()
         ..telemetry = PeerTelemetry(
@@ -610,7 +616,8 @@ class HiveNetRuntime {
           measuredLatencyMs: watch.elapsedMilliseconds,
           reliabilityScore: 90,
         );
-    } catch (_) {
+    } catch (e) {
+      view.problem = _connectionProblem(e);
       final n = (_failures[nodeId] ?? 0) + 1;
       _failures[nodeId] = n;
       // One miss can be noise; two in a row means the app is not answering
@@ -639,6 +646,22 @@ class HiveNetRuntime {
       for (final p in _peers.values)
         if (p.paired && p.status == PeerStatus.online && p.telemetry != null) p.telemetry!,
     ];
+  }
+
+  /// Words for why a paired device could not be reached, or null if it is just
+  /// not answering (app closed, out of range).
+  String? _connectionProblem(Object e) {
+    if (e is HiveError && e.code == HiveErrorCode.unauthenticated) {
+      final detail = e.technicalDetails ?? '';
+      if (detail.contains('not paired') || detail.contains('not trusted')) {
+        return 'The two phones no longer trust each other (one of them has forgotten the other). '
+            'Pair again to fix it: show a code on one phone and scan it with the other.';
+      }
+      if (detail.contains('different device')) {
+        return 'A different device answered at this address.';
+      }
+    }
+    return null;
   }
 
   Future<Map<String, Object?>> _telemetryReply() async {
@@ -980,6 +1003,33 @@ class HiveNetRuntime {
           contentId: m.contentId,
           payload: p,
         );
+
+    // A device we already know is pairing again (for example because the other
+    // phone lost its record). Only possible while our code is showing.
+    if (m.type == MessageType.pairRequest) {
+      final state = _invite;
+      if (state == null || !state.isUsable) return reply(MessageType.accessDenied);
+      int? peerPort;
+      try {
+        final device = await runPairingAsInviter(
+          channel: channel,
+          state: state,
+          self: identity,
+          confirm: _askUser,
+          save: _saveTrusted,
+          onPeerPort: (p) => peerPort = p,
+          firstRequest: m,
+        );
+        _invite = null;
+        await _rememberAddress(device.nodeId, device.displayName, channel.remoteAddress, peerPort);
+        lastPairing.value = PairingOutcome.success('Paired with ${device.displayName}');
+      } catch (e) {
+        debugPrint('pairing (re-pair) failed: $e');
+        lastPairing.value = PairingOutcome.failure(_pairingFailureText(e));
+      }
+      return null; // the pairing flow answered and closed the channel itself
+    }
+
     final contentId = m.contentId;
     if (contentId == null) return reply(MessageType.error, {'code': 'malformed_message'});
     final sender = channel.peerNodeId;

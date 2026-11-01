@@ -240,6 +240,120 @@ void main() {
     });
   });
 
+  group('pairing again after the old pairing went wrong', () {
+    TrustedDevice entry(TestDevice d, {TrustStatus status = TrustStatus.paired, DateTime? revoked}) =>
+        TrustedDevice(
+          nodeId: d.nodeId, publicKey: base64Encode(d.publicKey), fingerprint: 'fp',
+          displayName: d.identity.deviceName, pairedAt: t0, trustStatus: status, revokedAt: revoked);
+
+    test('a removed device is refused normally but may pair when a code is live', () async {
+      final base = trustedDeviceVerifier(
+          (id) => id == joiner.nodeId ? entry(joiner, status: TrustStatus.revoked, revoked: t0) : null);
+      var live = false;
+      final verifier = pairingAwareVerifier(base, () => live);
+
+      expect(await verifier(joiner.nodeId, joiner.publicKey), PeerTrust.rejected,
+          reason: 'no code showing: a removed device stays out');
+      live = true;
+      expect(await verifier(joiner.nodeId, joiner.publicKey), PeerTrust.unknown,
+          reason: 'a code is showing: it may try, and must still prove it scanned it');
+    });
+
+    test('a live code never turns a trusted device into a stranger, or vice versa', () async {
+      final base = trustedDeviceVerifier((id) => id == joiner.nodeId ? entry(joiner) : null);
+      final verifier = pairingAwareVerifier(base, () => true);
+      expect(await verifier(joiner.nodeId, joiner.publicKey), PeerTrust.trusted);
+      final stranger = await TestDevice.create('stranger');
+      expect(await verifier(stranger.nodeId, stranger.publicKey), PeerTrust.unknown);
+    });
+
+    test('a device removed earlier can pair again over a real connection', () async {
+      // Inviter's record of the joiner says "removed".
+      final records = <String, TrustedDevice>{
+        joiner.nodeId: entry(joiner, status: TrustStatus.revoked, revoked: t0),
+      };
+      final inviterVerifier = pairingAwareVerifier(
+          trustedDeviceVerifier((id) => records[id]), () => state.isUsable);
+
+      final server = SecureChannel.accept(pair.server,
+          identity: inviter.identity, signer: inviter.service,
+          verifier: inviterVerifier, allowUnknown: true);
+      // The joiner trusts nobody yet; the code pins the inviter's key.
+      final client = SecureChannel.connect(pair.client,
+          identity: joiner.identity, signer: joiner.service,
+          verifier: (_, _) => PeerTrust.unknown, allowUnknown: true,
+          expectedPeerKey: invite.publicKey);
+      final r = await Future.wait([
+        client.then<Object>((v) => v, onError: (Object e) => e),
+        server.then<Object>((v) => v, onError: (Object e) => e),
+      ]);
+      expect(r.every((x) => x is SecureChannel), isTrue, reason: '$r');
+
+      final out = await runBoth((joiner: r[0] as SecureChannel, inviter: r[1] as SecureChannel));
+      expect(out.every((x) => x is TrustedDevice), isTrue, reason: '$out');
+      expect(inviterSaved.single.trustStatus, TrustStatus.paired);
+    });
+
+    test('the joiner may pair with an inviter it had removed, because the code pins the key', () async {
+      // The joiner's own record says the inviter was removed. Scanning a fresh
+      // code is an explicit choice, so that record must not block it.
+      final server = SecureChannel.accept(pair.server,
+          identity: inviter.identity, signer: inviter.service,
+          verifier: verifierFor([], unlisted: PeerTrust.unknown), allowUnknown: true);
+      final client = SecureChannel.connect(pair.client,
+          identity: joiner.identity, signer: joiner.service,
+          verifier: (_, _) => PeerTrust.unknown, allowUnknown: true,
+          expectedPeerKey: invite.publicKey);
+      final r = await Future.wait([
+        client.then<Object>((v) => v, onError: (Object e) => e),
+        server.then<Object>((v) => v, onError: (Object e) => e),
+      ]);
+      expect(r.every((x) => x is SecureChannel), isTrue, reason: '$r');
+    });
+
+    test('an inviter that already trusts the joiner can finish the pairing from a request read elsewhere', () async {
+      // A trusted device reaches the inviter through the storage service, which
+      // reads the first message itself and hands it over.
+      final ch = await channels();
+      final inbox = StreamIterator(ch.inviter.messages);
+      final joinerRun = runPairingAsJoiner(
+        channel: ch.joiner, invite: invite, self: joiner.identity,
+        confirm: (_, _) => true, save: (d) async => joinerSaved.add(d),
+        timeout: const Duration(seconds: 3), clock: () => t0,
+      ).then<Object>((v) => v, onError: (Object e) => e);
+
+      expect(await inbox.moveNext(), isTrue);
+      final request = inbox.current; // already consumed by "someone else"
+      expect(request.type, MessageType.pairRequest);
+      await inbox.cancel();
+
+      final inviterRun = await runPairingAsInviter(
+        channel: ch.inviter, state: state, self: inviter.identity,
+        confirm: (_, _) => true, save: (d) async => inviterSaved.add(d),
+        firstRequest: request,
+        timeout: const Duration(seconds: 3), clock: () => t0,
+      ).then<Object>((v) => v, onError: (Object e) => e);
+
+      expect(inviterRun, isA<TrustedDevice>());
+      expect(await joinerRun, isA<TrustedDevice>());
+      expect(joinerSaved, hasLength(1));
+      expect(inviterSaved, hasLength(1));
+    });
+
+    test('a request that is not a pairing request is refused when handed over', () async {
+      final ch = await channels();
+      final out = await runPairingAsInviter(
+        channel: ch.inviter, state: state, self: inviter.identity,
+        confirm: (_, _) => true, save: (d) async => inviterSaved.add(d),
+        firstRequest: MessageEnvelope(
+            type: MessageType.heartbeat, requestId: 'x', senderNodeId: joiner.nodeId),
+        timeout: const Duration(seconds: 2), clock: () => t0,
+      ).then<Object>((v) => v, onError: (Object e) => e);
+      expect(out, isA<HiveError>());
+      expect(inviterSaved, isEmpty);
+    });
+  });
+
   group('refusals', () {
     test('if the inviter declines, nothing is saved anywhere', () async {
       final r = await runBoth(await channels(), inviterAccepts: false);

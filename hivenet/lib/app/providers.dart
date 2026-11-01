@@ -69,8 +69,6 @@ final storageRouterProvider = Provider<StorageRouter>((ref) {
   return DeterministicStorageRouter(
     trustedNodeIds: () => _pairedNodeIds(db),
     scorer: ref.watch(nodeScorerProvider),
-    // The AI ranker is optional and off until it is evaluated (PRD FR-05).
-    decisionModel: ref.watch(decisionModelProvider),
     policy: EligibilityPolicy.fromNetwork(ref.watch(networkConfigProvider)),
   );
 });
@@ -89,10 +87,6 @@ final quotaManagerProvider = Provider<QuotaManager>((ref) {
     storedBytes: files.usedBytes,
   );
 });
-
-/// AI ranking is optional and cannot block uploads (PRD FR-05).
-final decisionModelProvider =
-    Provider<DecisionModelAdapter>((ref) => const NoopDecisionModel());
 
 /// Denies everything until real authorization exists (PRD FR-09A).
 final accessControlProvider =
