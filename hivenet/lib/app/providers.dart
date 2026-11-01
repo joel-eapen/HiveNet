@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hivenet_core/hivenet_core.dart';
 
@@ -21,6 +23,15 @@ final appDatabaseProvider = Provider<AppDatabase>(
 // --- Adapters (Flutter-dependent implementations of core interfaces) ---
 
 final keyStoreProvider = Provider<KeyStore>((ref) => SecureKeyStore());
+
+/// This installation's identity. The private seed lives in the platform
+/// secure store; `loadOrCreate` must be called once at startup before signing.
+final deviceIdentityServiceProvider = Provider<DeviceIdentityService>(
+  (ref) => Ed25519DeviceIdentityService(
+    keyStore: ref.watch(keyStoreProvider),
+    platform: Platform.isIOS ? DevicePlatform.ios : DevicePlatform.android,
+  ),
+);
 
 final imageCompressorProvider =
     Provider<ImageCompressor>((ref) => const FlutterImageCompressor());

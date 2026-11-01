@@ -24,6 +24,7 @@ export 'src/core/compression/thumbnail_generator.dart';
 
 // Networking
 export 'src/core/networking/heartbeat_service.dart';
+export 'src/core/networking/length_prefixed_buffer.dart';
 export 'src/core/networking/length_prefixed_framing.dart';
 export 'src/core/networking/message_framing.dart';
 export 'src/core/networking/message_protocol.dart';
@@ -65,9 +66,11 @@ export 'src/core/storage/storage_layout.dart';
 // Security
 export 'src/core/security/aes_gcm_encryption_service.dart';
 export 'src/core/security/device_identity.dart';
+export 'src/core/security/ed25519_device_identity_service.dart';
 export 'src/core/security/encryption_service.dart';
 export 'src/core/security/key_store.dart';
 export 'src/core/security/pairing_service.dart';
+export 'src/core/security/secure_channel.dart';
 
 // Metadata
 export 'src/core/metadata/manifest.dart';

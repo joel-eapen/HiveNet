@@ -220,6 +220,11 @@ enum MessageType implements WireEnum {
   heartbeat('HEARTBEAT'),
   pairRequest('PAIR_REQUEST'),
   pairConfirm('PAIR_CONFIRM'),
+  // Authenticated key exchange (secure channel handshake)
+  authHello('AUTH_HELLO'),
+  authReply('AUTH_REPLY'),
+  authFinish('AUTH_FINISH'),
+  authAccept('AUTH_ACCEPT'),
   error('ERROR');
 
   const MessageType(this.wire);

@@ -4,20 +4,24 @@ Goal: settle the eight mobile compatibility checks in PRD section 10.6 on real p
 
 The test harness is a developer screen in the app: **Settings → Feasibility spike (developer)**. Its code is in `hivenet/lib/spike/` and is throwaway. It uses its own simple wire format, not the production protocol.
 
+## Scope decision: Android only (for now)
+
+iPhone support is deferred. The iOS configuration (`NSLocalNetworkUsageDescription`, `NSBonjourServices`) stays in the project but is untested, and nothing here depends on it. Checks that need an iPhone are marked out of scope below, not failed. Revisit when an iPhone and full Xcode are available.
+
 ## Status so far
 
-Devices used: Android emulator (API 37), motorola edge 60 pro (Android 17), V2117 (Android 13). All are Android, so nothing here covers iOS yet.
+Devices: Android emulator (API 37), motorola edge 60 pro (Android 17), V2117 (Android 13).
 
 | # | Check | Result |
 |---|---|---|
-| 1 | Local-network permission handled | Not testable on Android (no such prompt). Needs an iPhone. |
-| 2 | Two devices discover each other (mDNS) | **Pending.** The V2117 was on mobile data, not Wi-Fi, when tested. |
-| 3 | Framed TCP transfer in chunks | **Pass** emulator to Motorola over campus Wi-Fi: 5 MiB, 1 MiB chunks, per-chunk ACKs, SHA-256 verified by the receiver. |
-| 4 | Interruption and resume | **Pass** same run: dropped at 2,097,152 bytes, resumed from exactly that offset. |
-| 5 | JPEG and HEIC import | **Pass on Android** on two phones (see findings). iPhone HEIC from Photos still untested. |
-| 6 | Cross-platform decode and hash | Android to Android only. Needs an iPhone. |
-| 7 | Key survives restart | **Pass** on the emulator and on the Motorola's real Keystore. Reboot and iPhone Keychain untested. |
-| 8 | Backgrounded peer goes unavailable | **Pass** (see findings for caveats). |
+| 1 | Local-network permission handled | **Out of scope** (iOS-only prompt). |
+| 2 | Two devices discover each other (mDNS) | **Pass** between the two real phones, both directions, on a phone hotspot. **Fails on the campus Wi-Fi** (see findings). |
+| 3 | Framed TCP transfer in chunks | **Pass** between real phones: 5 MiB, 1 MiB chunks, per-chunk ACKs, SHA-256 verified by the receiver. |
+| 4 | Interruption and resume | **Pass**: dropped at 2,097,152 bytes, resumed from exactly that offset, including to an mDNS-discovered peer. |
+| 5 | JPEG and HEIC import | **Pass on Android** on two phones. |
+| 6 | Cross-device decode and hash | **Pass for Android to Android** (receiver verifies the SHA-256 on every transfer). The final compressed-image send between the two phones was not observed to completion, so image decode on the receiving phone is exercised only by the transfer hash check. Cross-platform with iOS is out of scope. |
+| 7 | Key survives restart | **Pass** on the emulator and on the Motorola's Keystore. Reboot untested. |
+| 8 | Backgrounded peer goes unavailable | **Pass** (emulator backgrounded; phone marked it unavailable at about 40 s). |
 
 ## Findings
 
@@ -28,6 +32,7 @@ Devices used: Android emulator (API 37), motorola edge 60 pro (Android 17), V211
 - **Backgrounding.** An emulator's app kept heartbeating for about 20 seconds after being sent to the background, then stopped. The peer was marked unavailable at about 40 seconds. After the app came back to the foreground it did not reconnect on its own, so the production heartbeat needs automatic reconnection. This was an emulator, so real phones may differ.
 - **Campus Wi-Fi (NITJ-WiFi) allows device-to-device traffic** in this test (pings and TCP worked both ways). This will not hold on every network; the app must say so when peers are unreachable.
 - `bonsoir` takes the Android multicast lock itself, so no extra lock code is needed.
+- **mDNS is blocked on the campus Wi-Fi (NITJ-WiFi) but works on a phone hotspot.** On NITJ-WiFi the phones could ping each other and open TCP connections, but neither saw the other's mDNS broadcast, and a service the Mac advertised was invisible to both phones. The network drops multicast between devices. On a phone hotspot both phones discovered each other and resolved the correct address and port. Pairing therefore must not depend on mDNS: the pairing QR code carries the address and port, and manual connect stays as a fallback.
 - **The emulator cannot test mDNS.** It sits behind a virtual network. Manual connect by IP works.
 
 ## What you need
