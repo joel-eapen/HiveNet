@@ -4,26 +4,31 @@ Goal: settle the eight mobile compatibility checks in PRD section 10.6 on real p
 
 The test harness is a developer screen in the app: **Settings → Feasibility spike (developer)**. Its code is in `hivenet/lib/spike/` and is throwaway. It uses its own simple wire format, not the production protocol.
 
-## Status so far (Android emulator only)
+## Status so far
+
+Devices used: Android emulator (API 37), motorola edge 60 pro (Android 17), V2117 (Android 13). All are Android, so nothing here covers iOS yet.
 
 | # | Check | Result |
 |---|---|---|
-| 1 | Local-network permission handled | Not testable on the emulator. Needs an iPhone for the prompt. |
-| 2 | Two devices discover each other | Not testable on the emulator. Needs two phones. |
-| 3 | Framed TCP transfer in chunks | Partial. 5 MiB, 1 MiB chunks, per-chunk ACK, SHA-256 verified over loopback. |
-| 4 | Interruption and resume | Partial. Dropped at 2,097,152 bytes and resumed from exactly that offset (loopback). |
-| 5 | JPEG and HEIC import | Partial. PNG to JPEG works. HEIC untested. |
-| 6 | Cross-platform decode and hash | Needs two different platforms. |
-| 7 | Key survives restart | Pass on the Android emulator (Keystore). Repeat on a real Android phone and an iPhone. |
-| 8 | Backgrounded peer goes unavailable | Needs two phones. |
+| 1 | Local-network permission handled | Not testable on Android (no such prompt). Needs an iPhone. |
+| 2 | Two devices discover each other (mDNS) | **Pending.** The V2117 was on mobile data, not Wi-Fi, when tested. |
+| 3 | Framed TCP transfer in chunks | **Pass** emulator to Motorola over campus Wi-Fi: 5 MiB, 1 MiB chunks, per-chunk ACKs, SHA-256 verified by the receiver. |
+| 4 | Interruption and resume | **Pass** same run: dropped at 2,097,152 bytes, resumed from exactly that offset. |
+| 5 | JPEG and HEIC import | **Pass on Android** on two phones (see findings). iPhone HEIC from Photos still untested. |
+| 6 | Cross-platform decode and hash | Android to Android only. Needs an iPhone. |
+| 7 | Key survives restart | **Pass** on the emulator and on the Motorola's real Keystore. Reboot and iPhone Keychain untested. |
+| 8 | Backgrounded peer goes unavailable | **Pass** (see findings for caveats). |
 
-`dart`/`flutter` unit tests also cover the framing code: byte-by-byte delivery, coalesced frames, a 1 MiB chunk across uneven reads, oversized and malformed frames.
+## Findings
 
-## Findings already recorded
-
-- **`flutter_image_compress` does not cap size.** `minWidth` and `minHeight` are lower bounds, so asking for 2048 left a 3000x2000 image unchanged. The production compressor must read the input size and compute the exact target itself, never upscaling. Verified: 3000x2000 became 2048x1365.
-- EXIF (including GPS) is stripped with `keepExif: false`. The spike checks the output bytes for an EXIF marker.
+- **`flutter_image_compress` does not cap size.** `minWidth`/`minHeight` are lower bounds, so asking for 2048 left a 3000x2000 image unchanged. The production compressor must read the input size and compute the exact target, never upscaling.
+- **Rotation is applied and EXIF/GPS is removed.** A JPEG with GPS coordinates and a "rotate 90" tag came out rotated correctly (the marker square moved to the expected corner) with no EXIF, on both phones. A 4000x3000 input came out 1536x2048 (longest side 2048).
+- **HEIC decodes on Android.** A HEIC file was converted to JPEG on both phones (Android 13 and 17), so HEIC does not have to be rejected on Android. Real iPhone HEIC from Photos is still untested.
+- **Compression is repeatable on one device but differs between devices.** The Motorola gave identical bytes across runs. The V2117 gave different bytes for the same input, with the same dimensions and the same visual result. So the same photo uploaded from two different phones gets two different content IDs. Consequences: the content ID must be computed once, by the uploader, on the exact bytes that are stored. A receiver must never re-compress and re-hash. The PRD already says the ID depends on the exact compressed bytes; this confirms it matters in practice.
+- **Backgrounding.** An emulator's app kept heartbeating for about 20 seconds after being sent to the background, then stopped. The peer was marked unavailable at about 40 seconds. After the app came back to the foreground it did not reconnect on its own, so the production heartbeat needs automatic reconnection. This was an emulator, so real phones may differ.
+- **Campus Wi-Fi (NITJ-WiFi) allows device-to-device traffic** in this test (pings and TCP worked both ways). This will not hold on every network; the app must say so when peers are unreachable.
 - `bonsoir` takes the Android multicast lock itself, so no extra lock code is needed.
+- **The emulator cannot test mDNS.** It sits behind a virtual network. Manual connect by IP works.
 
 ## What you need
 

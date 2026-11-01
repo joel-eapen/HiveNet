@@ -37,6 +37,9 @@ class CompressOutcome {
     required this.containsExif,
     required this.inputFormat,
     required this.inputBytes,
+    required this.inputHadExif,
+    required this.inputDims,
+    required this.markerCorner,
   });
 
   final Uint8List bytes;
@@ -46,6 +49,15 @@ class CompressOutcome {
   final bool containsExif;
   final String inputFormat;
   final int inputBytes;
+  final bool inputHadExif;
+
+  /// Stored pixel size of the input, before any rotation tag is applied.
+  final String inputDims;
+
+  /// Which corner of the OUTPUT holds the red marker square, or "none".
+  /// Test images put the marker at the top-left of the stored pixels, so with
+  /// EXIF orientation 6 a correct result has it at the top-right.
+  final String markerCorner;
 }
 
 /// Compresses with the PRD FR-03 "normal" policy (quality 80, 2048 px) and
@@ -60,7 +72,9 @@ Future<CompressOutcome> compressForSpike(String path) async {
   // the output, not a maximum, so passing 2048/2048 left a 3000x2000 image
   // unchanged. To cap the longest side we must read the input size ourselves
   // and pass the exact target as the "min" values.
-  final inputCodec = await ui.instantiateImageCodec(await input.readAsBytes());
+  final inputBytesAll = await input.readAsBytes();
+  final inputHadExif = _hasExif(inputBytesAll);
+  final inputCodec = await ui.instantiateImageCodec(inputBytesAll);
   final inputFrame = await inputCodec.getNextFrame();
   final inW = inputFrame.image.width;
   final inH = inputFrame.image.height;
@@ -92,15 +106,7 @@ Future<CompressOutcome> compressForSpike(String path) async {
   codec.dispose();
 
   // A JPEG APP1 "Exif\0\0" marker in the first 64 KiB means metadata survived.
-  final scan = out.length < 65536 ? out : out.sublist(0, 65536);
-  var exif = false;
-  for (var i = 0; i + 5 < scan.length; i++) {
-    if (scan[i] == 0x45 && scan[i + 1] == 0x78 && scan[i + 2] == 0x69 &&
-        scan[i + 3] == 0x66 && scan[i + 4] == 0 && scan[i + 5] == 0) {
-      exif = true;
-      break;
-    }
-  }
+  final exif = _hasExif(out);
 
   return CompressOutcome(
     bytes: out,
@@ -109,8 +115,51 @@ Future<CompressOutcome> compressForSpike(String path) async {
     sha256: sha256.convert(out).toString(),
     containsExif: exif,
     inputFormat: inputFormat,
-    inputBytes: await input.length(),
+    inputBytes: inputBytesAll.length,
+    inputHadExif: inputHadExif,
+    inputDims: '${inW}x$inH',
+    markerCorner: await _markerCorner(out),
   );
+}
+
+/// True if the first 64 KiB contain a JPEG APP1 "Exif\0\0" header.
+bool _hasExif(Uint8List bytes) {
+  final scan = bytes.length < 65536 ? bytes : bytes.sublist(0, 65536);
+  for (var i = 0; i + 5 < scan.length; i++) {
+    if (scan[i] == 0x45 && scan[i + 1] == 0x78 && scan[i + 2] == 0x69 &&
+        scan[i + 3] == 0x66 && scan[i + 4] == 0 && scan[i + 5] == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// Finds the red marker square by sampling just inside each corner of the
+/// decoded output. Returns "none" if no corner is clearly red.
+Future<String> _markerCorner(Uint8List jpeg) async {
+  final codec = await ui.instantiateImageCodec(jpeg);
+  final image = (await codec.getNextFrame()).image;
+  final w = image.width;
+  final h = image.height;
+  final data = (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+  image.dispose();
+  codec.dispose();
+
+  bool isRed(int x, int y) {
+    final i = (y * w + x) * 4;
+    final r = data.getUint8(i), g = data.getUint8(i + 1), b = data.getUint8(i + 2);
+    return r > 170 && g < 90 && b < 90;
+  }
+
+  final inset = (w < h ? w : h) ~/ 20 + 8;
+  final corners = {
+    'top-left': isRed(inset, inset),
+    'top-right': isRed(w - 1 - inset, inset),
+    'bottom-left': isRed(inset, h - 1 - inset),
+    'bottom-right': isRed(w - 1 - inset, h - 1 - inset),
+  };
+  final hits = [for (final e in corners.entries) if (e.value) e.key];
+  return hits.length == 1 ? hits.single : 'none';
 }
 
 /// Draws a test PNG so compression can be checked without a photo library.

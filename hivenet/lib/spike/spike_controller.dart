@@ -215,6 +215,30 @@ class SpikeController extends ChangeNotifier with WidgetsBindingObserver {
     });
   }
 
+  /// Compresses every file in `<app files>/spike/inbox/`. Lets test images be
+  /// pushed with adb instead of driving the system picker.
+  Future<void> compressInbox() async {
+    await _guard('compress inbox', () async {
+      final inbox = Directory('${dir.path}/inbox');
+      final files = inbox.existsSync()
+          ? (inbox.listSync().whereType<File>().toList()
+            ..sort((a, b) => a.path.compareTo(b.path)))
+          : <File>[];
+      if (files.isEmpty) {
+        report.log('inbox is empty: ${inbox.path}');
+        return;
+      }
+      for (final f in files) {
+        final name = f.uri.pathSegments.last;
+        try {
+          await _compress(f.path, name);
+        } catch (e) {
+          report.log('$name: FAILED: $e');
+        }
+      }
+    });
+  }
+
   Future<void> pickAndCompress() async {
     await _guard('pick and compress', () async {
       final picked = await FilePicker.pickFiles(type: FileType.image);
@@ -234,10 +258,13 @@ class SpikeController extends ChangeNotifier with WidgetsBindingObserver {
       await out.writeAsBytes(r.bytes);
       lastCompressed = r;
       lastCompressedFile = out;
+      final exifNote = r.containsExif
+          ? 'EXIF STILL PRESENT (bad)'
+          : (r.inputHadExif ? 'EXIF removed' : 'input had no EXIF');
       final line =
-          '$label: input ${r.inputFormat} ${r.inputBytes} B -> JPEG ${r.bytes.length} B, '
-          '${r.width}x${r.height}, EXIF ${r.containsExif ? "PRESENT (bad)" : "stripped"}, '
-          'sha256 ${r.sha256.substring(0, 12)}';
+          '$label: input ${r.inputFormat} ${r.inputDims} ${r.inputBytes} B -> JPEG '
+          '${r.bytes.length} B ${r.width}x${r.height}, $exifNote, '
+          'marker ${r.markerCorner}, sha256 ${r.sha256.substring(0, 12)}';
       report.log(line);
       final isHeif = r.inputFormat.startsWith('ISO-BMFF');
       report.setCheck(

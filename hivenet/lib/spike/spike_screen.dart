@@ -24,11 +24,18 @@ class _SpikeScreenState extends State<SpikeScreen> {
   @override
   void initState() {
     super.initState();
+    // The manual-connect buttons depend on what is typed, so rebuild on edits.
+    _host.addListener(_onEdit);
+    _port.addListener(_onEdit);
     c.init().then((_) {
       if (mounted) setState(() => _ready = true);
     }).catchError((Object e) {
       if (mounted) setState(() => _initError = e);
     });
+  }
+
+  void _onEdit() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -40,6 +47,7 @@ class _SpikeScreenState extends State<SpikeScreen> {
   }
 
   int? get _manualPort => int.tryParse(_port.text.trim());
+  bool get _manualReady => _host.text.trim().isNotEmpty && _manualPort != null;
 
   @override
   Widget build(BuildContext context) {
@@ -85,6 +93,9 @@ class _SpikeScreenState extends State<SpikeScreen> {
           OutlinedButton(
               onPressed: c.busy ? null : c.compressGenerated,
               child: const Text('Compress generated image')),
+          OutlinedButton(
+              onPressed: c.busy ? null : c.compressInbox,
+              child: const Text('Compress files in inbox')),
           OutlinedButton(
               onPressed: c.busy ? null : c.pickAndCompress,
               child: const Text('Pick image and compress')),
@@ -132,11 +143,11 @@ class _SpikeScreenState extends State<SpikeScreen> {
           title: 'Manual peer',
           subtitle: 'Uses the IP and port above',
           busy: c.busy,
-          onLink: _manualPort == null ? null : () => c.link(_host.text.trim(), _manualPort!),
-          onTransfer: _manualPort == null
+          onLink: !_manualReady ? null : () => c.link(_host.text.trim(), _manualPort!),
+          onTransfer: !_manualReady
               ? null
               : () => c.interruptedTransfer(_host.text.trim(), _manualPort!),
-          onImage: _manualPort == null
+          onImage: !_manualReady
               ? null
               : () => c.sendCompressed(_host.text.trim(), _manualPort!),
         ),
