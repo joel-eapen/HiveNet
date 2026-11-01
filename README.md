@@ -121,7 +121,8 @@ Module paths are under `packages/hivenet_core/lib/src/`. Milestones are from PRD
 
 ## Known gaps
 
-- The Android SDK was not installed when the skeleton was written, so `flutter build apk --debug` has not been run.
-- iOS has not been built.
+- Verified on the Android emulator (API 37): the debug APK builds and the app launches. iOS has not been built.
+- Build gotchas: the first build downloads a prebuilt SQLite library from GitHub through the `sqlite3` build hook. A dropped connection fails the build with "Connection reset by peer"; re-running it works.
+- `flutter_image_compress_common` prints a Kotlin Gradle Plugin deprecation warning. It does not affect the build today, but check for a plugin update before upgrading Flutter.
 - The onboarding-complete flag is in memory only. Persisting it is Milestone 1.
 - The output image format (JPEG or WebP) is a placeholder default until the Milestone 0 device spike.
