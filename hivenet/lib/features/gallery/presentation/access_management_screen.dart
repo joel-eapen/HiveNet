@@ -97,6 +97,13 @@ class _AccessManagementScreenState extends ConsumerState<AccessManagementScreen>
               ),
             ),
           ),
+          const SizedBox(height: Spacing.md),
+          // Stated up front, not buried: revocation has limits.
+          Text(
+            'Revoking access blocks future requests and key deliveries. '
+            'It cannot erase a copy that someone already downloaded.',
+            style: theme.textTheme.bodySmall,
+          ),
           const SizedBox(height: Spacing.lg),
           if (rt == null || peers.isEmpty)
             const EmptyStateView(
@@ -132,12 +139,6 @@ class _AccessManagementScreenState extends ConsumerState<AccessManagementScreen>
               padding: const EdgeInsets.only(top: Spacing.md),
               child: Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
             ),
-          const SizedBox(height: Spacing.xl),
-          Text(
-            'Revoking access blocks future requests and key deliveries. '
-            'It cannot erase a copy that someone already downloaded.',
-            style: theme.textTheme.bodySmall,
-          ),
         ],
       ),
     );

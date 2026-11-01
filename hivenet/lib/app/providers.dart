@@ -261,6 +261,7 @@ final jobsProvider = StreamProvider<List<UploadJob>>((ref) {
 /// Disk use. Refreshed on demand and when the gallery changes.
 final storageStatsProvider = FutureProvider.autoDispose<StorageStats?>((ref) async {
   final rt = ref.watch(runtimeProvider);
+  if (rt == null) return null; // nothing to measure: answer at once, don't spin
   ref.watch(galleryProvider);
-  return rt?.storageStats();
+  return rt.storageStats();
 });

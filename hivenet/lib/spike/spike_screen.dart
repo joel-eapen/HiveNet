@@ -1,5 +1,11 @@
 // THROWAWAY Milestone 0 spike code.
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hivenet_core/hivenet_core.dart';
+
+import '../app/providers.dart';
 
 import '../app/theme/spacing_tokens.dart';
 import '../app/theme/typography.dart';
@@ -44,6 +50,36 @@ class _SpikeScreenState extends State<SpikeScreen> {
     _host.dispose();
     _port.dispose();
     super.dispose();
+  }
+
+  /// Runs the real upload pipeline on every file in the inbox and logs the full
+  /// exception and stack for any failure. Used to diagnose image problems.
+  Future<void> _runRealPipeline() async {
+    final rt = ProviderScope.containerOf(context).read(runtimeProvider);
+    if (rt == null) {
+      c.report.log('no runtime: the real pipeline is not available');
+      return;
+    }
+    final inbox = Directory('${c.dir.path}/inbox');
+    final files = inbox.existsSync() ? inbox.listSync().whereType<File>().toList() : <File>[];
+    if (files.isEmpty) c.report.log('inbox is empty');
+    for (final f in files) {
+      final name = f.uri.pathSegments.last;
+      try {
+        UploadUpdate? last;
+        await for (final u in rt.uploadImage(
+          sourcePath: f.path,
+          importance: Importance.normal,
+          visibility: ImageVisibility.private,
+        )) {
+          last = u;
+        }
+        c.report.log('PIPELINE OK $name -> ${last?.job?.status.wire ?? last?.stage.name}');
+      } catch (e, st) {
+        c.report.log('PIPELINE FAILED $name: ${e.runtimeType}: $e');
+        c.report.log(st.toString().split('\n').take(6).join(' | '));
+      }
+    }
   }
 
   int? get _manualPort => int.tryParse(_port.text.trim());
@@ -93,6 +129,9 @@ class _SpikeScreenState extends State<SpikeScreen> {
           OutlinedButton(
               onPressed: c.busy ? null : c.compressGenerated,
               child: const Text('Compress generated image')),
+          OutlinedButton(
+              onPressed: _runRealPipeline,
+              child: const Text('Run REAL upload pipeline on inbox')),
           OutlinedButton(
               onPressed: c.busy ? null : c.compressInbox,
               child: const Text('Compress files in inbox')),

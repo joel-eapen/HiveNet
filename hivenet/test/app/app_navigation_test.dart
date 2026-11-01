@@ -54,7 +54,9 @@ void main() {
     for (final entry in tabs.entries) {
       await tester.tap(find.descendant(
           of: find.byType(NavigationBar), matching: find.text(entry.key)));
-      await tester.pumpAndSettle();
+      // Activity shows an in-flight job whose progress bar never stops
+      // animating, so wait a fixed time instead of waiting for stillness.
+      await tester.pump(const Duration(milliseconds: 600));
       expect(find.text(entry.value), findsWidgets, reason: entry.key);
     }
   });

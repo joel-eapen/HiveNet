@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hivenet_core/hivenet_core.dart';
@@ -31,15 +32,25 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   String? _contentId;
   String? _error;
 
+  bool _picking = false;
+
   Future<void> _pick() async {
-    final picked = await FilePicker.pickFiles(type: FileType.image);
-    if (picked.isEmpty || picked.first.path == null) return;
-    setState(() {
-      _path = picked.first.path;
-      _stage = null;
-      _job = null;
-      _error = null;
-    });
+    if (_picking) return; // the system picker allows only one at a time
+    setState(() => _picking = true);
+    try {
+      final picked = await FilePicker.pickFiles(type: FileType.image);
+      if (picked.isEmpty || picked.first.path == null) return;
+      setState(() {
+        _path = picked.first.path;
+        _stage = null;
+        _job = null;
+        _error = null;
+      });
+    } on PlatformException {
+      // Picker already open or closed by the system: nothing to do.
+    } finally {
+      if (mounted) setState(() => _picking = false);
+    }
   }
 
   Future<void> _start() async {
@@ -96,11 +107,22 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                 if (_path != null)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(Radii.md),
-                    child: Image.file(File(_path!), height: 200, fit: BoxFit.cover),
+                    child: Image.file(
+                      File(_path!),
+                      height: 200,
+                      fit: BoxFit.cover,
+                      // A preview that cannot be drawn must not stop the upload.
+                      errorBuilder: (context, error, _) => Container(
+                        height: 200,
+                        alignment: Alignment.center,
+                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        child: const Text('Preview not available for this image'),
+                      ),
+                    ),
                   ),
                 const SizedBox(height: Spacing.sm),
                 OutlinedButton.icon(
-                  onPressed: _running ? null : _pick,
+                  onPressed: (_running || _picking) ? null : _pick,
                   icon: const Icon(Icons.photo_library_outlined),
                   label: Text(_path == null ? 'Choose an image' : 'Choose a different image'),
                 ),

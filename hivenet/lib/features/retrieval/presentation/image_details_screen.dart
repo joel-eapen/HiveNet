@@ -127,7 +127,14 @@ class _Preview extends StatelessWidget {
     if (s?.stage == RetrievalStage.ready && s?.localPath != null) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(Radii.md),
-        child: Image.file(File(s!.localPath!), fit: BoxFit.contain),
+        child: Image.file(
+          File(s!.localPath!),
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, _) => const Padding(
+            padding: EdgeInsets.all(Spacing.lg),
+            child: Text('This image was verified but could not be drawn on this device.'),
+          ),
+        ),
       );
     }
 

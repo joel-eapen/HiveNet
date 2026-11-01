@@ -30,14 +30,24 @@ class AppSettings {
     return AppSettings._(file, name, onboarded);
   }
 
-  Future<void> save() async {
+  Future<void> _tail = Future.value();
+
+  /// Saves the current values. Calls are queued, so two quick changes (name and
+  /// onboarding flag) never race each other on the same temp file.
+  Future<void> save() {
+    final done = _tail.then((_) => _write());
+    _tail = done.then((_) {}, onError: (_) {});
+    return done;
+  }
+
+  Future<void> _write() async {
     await _file.parent.create(recursive: true);
     // Write to a temp file and rename so a crash cannot leave half a file.
     final tmp = File('${_file.path}.tmp');
     await tmp.writeAsString(jsonEncode({
       'deviceName': deviceName,
       'onboardingComplete': onboardingComplete,
-    }));
+    }), flush: true);
     await tmp.rename(_file.path);
   }
 }
