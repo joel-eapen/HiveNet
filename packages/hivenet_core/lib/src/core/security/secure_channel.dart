@@ -449,9 +449,18 @@ class SecureChannel {
     }
   }
 
-  Future<void> close() async {
+  /// Closes the channel. Anything already passed to [send] is written out first
+  /// (for up to [flushTimeout]), so a final message is not lost to the close.
+  Future<void> close({Duration flushTimeout = const Duration(seconds: 5)}) async {
     if (_closed) return;
     _closed = true;
+    // Wait for queued sends, then for the socket to push its buffer out.
+    try {
+      await _sendTail.timeout(flushTimeout);
+      await _socket.flush().timeout(flushTimeout);
+    } catch (_) {
+      // Peer already gone or too slow: fall through and tear down.
+    }
     _socket.destroy();
     // Do not await the controller: with no listener its close() never
     // completes, which would make closing an unread channel hang forever.

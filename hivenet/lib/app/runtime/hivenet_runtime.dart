@@ -73,6 +73,14 @@ class PairingPrompt {
   }
 }
 
+/// How the last pairing attempt on this device ended, for the UI to show.
+class PairingOutcome {
+  const PairingOutcome.success(this.message) : ok = true;
+  const PairingOutcome.failure(this.message) : ok = false;
+  final bool ok;
+  final String message;
+}
+
 /// Everything HiveNet does on this device, in one place.
 ///
 /// The UI talks only to this class. It owns the device identity, the listening
@@ -112,6 +120,10 @@ class HiveNetRuntime {
 
   /// Set while a pairing needs the user's decision; the UI shows a dialog.
   final ValueNotifier<PairingPrompt?> pendingPairing = ValueNotifier(null);
+
+  /// Set when a pairing that another phone started with our code finishes or
+  /// fails, so the screen showing the code can say what happened.
+  final ValueNotifier<PairingOutcome?> lastPairing = ValueNotifier(null);
 
   int get port => _server.port;
 
@@ -329,7 +341,9 @@ class HiveNetRuntime {
       port: _server.port,
       secret: Uint8List.fromList(List.generate(PairingInvite.secretBytes, (_) => rnd.nextInt(256))),
       expiresAt: DateTime.now().toUtc().add(const Duration(minutes: 5)),
+      deviceName: deviceName,
     );
+    lastPairing.value = null;
     _invite = PairingInviteState(invite: invite);
     return invite;
   }
@@ -353,9 +367,22 @@ class HiveNetRuntime {
     ).then((device) async {
       _invite = null;
       await _rememberAddress(device.nodeId, device.displayName, channel.remoteAddress, peerPort);
-    }).catchError((Object _) {
-      // Declined, wrong code, or dropped. Nothing was saved.
+      lastPairing.value = PairingOutcome.success('Paired with ${device.displayName}');
+    }).catchError((Object e) {
+      // Declined, wrong code, or dropped. Nothing was saved; say so.
+      debugPrint('pairing (inviter) failed: $e');
+      lastPairing.value = PairingOutcome.failure(_pairingFailureText(e));
     });
+  }
+
+  String _pairingFailureText(Object e) {
+    final detail = e is HiveError ? (e.technicalDetails ?? '') : '$e';
+    if (detail.contains('declined')) return 'Pairing was declined.';
+    if (detail.contains('invalid, used or expired')) {
+      return 'The other phone used a code that is no longer valid. Make a new code.';
+    }
+    if (detail.contains('timed out')) return 'Pairing timed out. Try again.';
+    return 'Pairing did not complete. No device was added.';
   }
 
   /// Pairs with the device that showed [qrText]. Throws if the code is invalid,

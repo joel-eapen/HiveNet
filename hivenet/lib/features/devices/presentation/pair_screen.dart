@@ -28,10 +28,21 @@ class _PairScreenState extends ConsumerState<PairScreen> with SingleTickerProvid
   void initState() {
     super.initState();
     _runtime = ref.read(runtimeProvider);
+    // The other phone may finish (or fail) pairing while this screen shows the
+    // code. Tell the user either way.
+    _runtime?.lastPairing.addListener(_onPairingOutcome);
+  }
+
+  void _onPairingOutcome() {
+    final outcome = _runtime?.lastPairing.value;
+    if (outcome == null || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(outcome.message)));
+    if (outcome.ok) context.go('/devices');
   }
 
   @override
   void dispose() {
+    _runtime?.lastPairing.removeListener(_onPairingOutcome);
     // Stop accepting unknown devices as soon as this screen closes.
     _runtime?.cancelInvite();
     _tabs.dispose();
@@ -55,7 +66,15 @@ class _PairScreenState extends ConsumerState<PairScreen> with SingleTickerProvid
               title: 'Pairing is not available',
               message: 'HiveNet is not running on this device.',
             )
-          : TabBarView(controller: _tabs, children: const [_ShowCode(), _ScanCode()]),
+          : TabBarView(controller: _tabs, children: [
+              const _ShowCode(),
+              // Rebuilt when the tab changes, so the camera runs only while the
+              // scan tab is showing.
+              AnimatedBuilder(
+                animation: _tabs.animation!,
+                builder: (context, _) => _ScanCode(active: _tabs.index == 1 && !_tabs.indexIsChanging),
+              ),
+            ]),
     );
   }
 }
@@ -177,7 +196,10 @@ class _ShowCodeState extends ConsumerState<_ShowCode> {
 }
 
 class _ScanCode extends ConsumerStatefulWidget {
-  const _ScanCode();
+  const _ScanCode({required this.active});
+
+  /// True while this tab is the one on screen.
+  final bool active;
 
   @override
   ConsumerState<_ScanCode> createState() => _ScanCodeState();
@@ -185,21 +207,59 @@ class _ScanCode extends ConsumerStatefulWidget {
 
 class _ScanCodeState extends ConsumerState<_ScanCode> {
   final _paste = TextEditingController();
-  MobileScannerController? _camera;
+  // autoStart is off: the camera is started and stopped here, only while this
+  // tab is visible, so it never collides with the widget's own start-up.
+  final MobileScannerController _camera = MobileScannerController(
+    formats: const [BarcodeFormat.qrCode],
+    autoStart: false,
+  );
   bool _busy = false;
+  bool _cameraOn = false;
   String? _message;
 
   @override
   void initState() {
     super.initState();
-    _camera = MobileScannerController(formats: const [BarcodeFormat.qrCode]);
+    if (widget.active) _startCamera();
+  }
+
+  @override
+  void didUpdateWidget(_ScanCode old) {
+    super.didUpdateWidget(old);
+    if (widget.active && !old.active) _startCamera();
+    if (!widget.active && old.active) _stopCamera();
   }
 
   @override
   void dispose() {
-    _camera?.dispose();
+    _camera.dispose();
     _paste.dispose();
     super.dispose();
+  }
+
+  Future<void> _startCamera() async {
+    if (_cameraOn || _busy) return;
+    _cameraOn = true;
+    try {
+      await _camera.start();
+    } on MobileScannerException catch (e) {
+      // Already running is harmless. Anything else is shown by the errorBuilder.
+      if (e.errorCode != MobileScannerErrorCode.controllerAlreadyInitialized) {
+        _cameraOn = false;
+      }
+    } catch (_) {
+      _cameraOn = false;
+    }
+  }
+
+  Future<void> _stopCamera() async {
+    if (!_cameraOn) return;
+    _cameraOn = false;
+    try {
+      await _camera.stop();
+    } catch (_) {
+      // Stopping something already stopped is fine.
+    }
   }
 
   Future<void> _pair(String text) async {
@@ -208,7 +268,7 @@ class _ScanCodeState extends ConsumerState<_ScanCode> {
       _busy = true;
       _message = 'Connecting. Confirm on both phones when asked.';
     });
-    await _camera?.stop();
+    await _stopCamera();
     try {
       final device = await ref.read(runtimeProvider)!.pairWithCode(text.trim());
       if (!mounted) return;
@@ -221,8 +281,26 @@ class _ScanCodeState extends ConsumerState<_ScanCode> {
         _busy = false;
         _message = _friendly(e);
       });
-      await _camera?.start();
+      if (widget.active) await _startCamera();
     }
+  }
+
+  String _cameraTitle(MobileScannerErrorCode code) => switch (code) {
+        MobileScannerErrorCode.permissionDenied => 'Camera access is off',
+        MobileScannerErrorCode.unsupported => 'No camera found',
+        _ => 'The camera could not start',
+      };
+
+  String _cameraHelp(MobileScannerException error) {
+    final base = switch (error.errorCode) {
+      MobileScannerErrorCode.permissionDenied =>
+        'Allow camera access for HiveNet in your phone\'s settings, then reopen this tab.',
+      MobileScannerErrorCode.unsupported => 'This device has no usable camera.',
+      _ => 'Close and reopen this tab to try again.',
+    };
+    final detail = error.errorDetails?.message;
+    return '$base You can also paste the code below.'
+        '${detail == null ? '' : '\n\n($detail)'}';
   }
 
   String _friendly(Object e) {
@@ -256,10 +334,10 @@ class _ScanCodeState extends ConsumerState<_ScanCode> {
                   }
                 }
               },
-              errorBuilder: (context, error) => const EmptyStateView(
+              errorBuilder: (context, error) => EmptyStateView(
                 icon: Icons.no_photography_outlined,
-                title: 'Camera not available',
-                message: 'Allow camera access, or paste the code below instead.',
+                title: _cameraTitle(error.errorCode),
+                message: _cameraHelp(error),
               ),
             ),
           ),

@@ -76,7 +76,7 @@ class _SpikeScreenState extends State<SpikeScreen> {
         }
         c.report.log('PIPELINE OK $name -> ${last?.job?.status.wire ?? last?.stage.name}');
       } catch (e, st) {
-        c.report.log('PIPELINE FAILED $name: ${e.runtimeType}: $e');
+        c.report.log('PIPELINE FAILED $name: ${e.runtimeType}: $e${e is HiveError ? ' | ${e.technicalDetails}' : ''}');
         c.report.log(st.toString().split('\n').take(6).join(' | '));
       }
     }

@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../features/devices/presentation/pairing_dialog.dart';
 import '../shared/widgets/demo_banner.dart';
-import 'runtime/hivenet_runtime.dart';
 import '../shared/widgets/status_chip.dart';
 import 'providers.dart';
 
@@ -21,32 +19,6 @@ class AppShell extends ConsumerStatefulWidget {
 }
 
 class _AppShellState extends ConsumerState<AppShell> {
-  PairingPrompt? _shown;
-
-  // Kept in fields: `ref` must not be used inside dispose().
-  ValueNotifier<PairingPrompt?>? _pending;
-
-  @override
-  void initState() {
-    super.initState();
-    // A pairing request can arrive at any time, from any screen.
-    _pending = ref.read(runtimeProvider)?.pendingPairing;
-    _pending?.addListener(_onPairing);
-  }
-
-  @override
-  void dispose() {
-    _pending?.removeListener(_onPairing);
-    super.dispose();
-  }
-
-  void _onPairing() {
-    final prompt = _pending?.value;
-    if (prompt == null || identical(prompt, _shown) || !mounted) return;
-    _shown = prompt;
-    showPairingPrompt(context, prompt);
-  }
-
   StatefulNavigationShell get navigationShell => widget.navigationShell;
 
   @override

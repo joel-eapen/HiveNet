@@ -27,6 +27,10 @@ abstract final class Routes {
   static const spike = '/spike';
 }
 
+/// The app's root navigator. Dialogs that must appear on top of any screen (a
+/// pairing request) are shown through it.
+final rootNavigatorKey = GlobalKey<NavigatorState>();
+
 final routerProvider = Provider<GoRouter>((ref) {
   // Re-run redirect when onboarding completes.
   final refresh = ValueNotifier<int>(0);
@@ -34,6 +38,7 @@ final routerProvider = Provider<GoRouter>((ref) {
   ref.onDispose(refresh.dispose);
 
   return GoRouter(
+    navigatorKey: rootNavigatorKey,
     initialLocation: Routes.gallery,
     refreshListenable: refresh,
     redirect: (context, state) {

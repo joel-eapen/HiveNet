@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hivenet_core/hivenet_core.dart';
 
+import '../../../adapters/flutter_image_compressor.dart' show looksTruncated;
 import '../../../app/providers.dart';
 import '../../../app/theme/spacing_tokens.dart';
 import '../../../shared/widgets/status_chip.dart';
@@ -34,22 +35,76 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
 
   bool _picking = false;
 
+  /// Picks an image and checks the copy is complete.
+  ///
+  /// The system photo picker occasionally hands over a cut-off copy (seen on one
+  /// phone). If that happens, ask again through the plain file browser, which
+  /// reads the file directly, before giving up.
   Future<void> _pick() async {
     if (_picking) return; // the system picker allows only one at a time
     setState(() => _picking = true);
     try {
-      final picked = await FilePicker.pickFiles(type: FileType.image);
-      if (picked.isEmpty || picked.first.path == null) return;
+      var path = await _pickOnce(FileType.image);
+      if (path == null) return; // cancelled
+      var problem = await _checkPicked(path);
+      if (problem != null && mounted) {
+        final retry = await _confirmRetry();
+        if (retry == true) {
+          final second = await _pickOnce(FileType.any, extensions: const ['jpg', 'jpeg', 'png', 'webp', 'heic']);
+          if (second != null) {
+            path = second;
+            problem = await _checkPicked(second);
+          }
+        }
+      }
+      if (!mounted) return;
       setState(() {
-        _path = picked.first.path;
+        _path = problem == null ? path : null;
         _stage = null;
         _job = null;
-        _error = null;
+        _error = problem;
       });
     } on PlatformException {
       // Picker already open or closed by the system: nothing to do.
     } finally {
       if (mounted) setState(() => _picking = false);
+    }
+  }
+
+  Future<String?> _pickOnce(FileType type, {List<String>? extensions}) async {
+    final picked = await FilePicker.pickFiles(
+      type: type == FileType.any && extensions != null ? FileType.custom : type,
+      allowedExtensions: type == FileType.any ? extensions : null,
+    );
+    if (picked.isEmpty) return null;
+    return picked.first.path;
+  }
+
+  Future<bool?> _confirmRetry() => showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('That photo came through incomplete'),
+          content: const Text(
+            'The phone only gave HiveNet part of the file. Try again by choosing the same '
+            'photo from the file browser instead?',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Choose again')),
+          ],
+        ),
+      );
+
+  Future<String?> _checkPicked(String path) async {
+    try {
+      final bytes = await File(path).readAsBytes();
+      if (looksTruncated(bytes)) {
+        return 'This photo is incomplete: the phone only provided part of the file. '
+            'Pick it again, or choose a different photo.';
+      }
+      return null;
+    } catch (_) {
+      return 'That photo could not be read.';
     }
   }
 

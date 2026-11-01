@@ -31,6 +31,18 @@ class FlutterImageCompressor implements ImageCompressor {
     }
 
     final inputBytes = await input.readAsBytes();
+
+    // A photo handed over by the system picker can arrive cut off (seen on a
+    // vivo phone with screenshots). Decoders reject it with an unhelpful
+    // message, so say what is actually wrong.
+    if (looksTruncated(inputBytes)) {
+      throw HiveError(
+        code: HiveErrorCode.unsupportedImage,
+        message: 'This photo is incomplete: the phone only provided part of the '
+            'file. Pick it again, or pick a different photo.',
+        technicalDetails: 'missing end-of-image marker (${inputBytes.length} bytes)',
+      );
+    }
     int inW;
     int inH;
     try {
@@ -40,10 +52,12 @@ class FlutterImageCompressor implements ImageCompressor {
       inH = frame.image.height;
       frame.image.dispose();
       codec.dispose();
-    } catch (_) {
-      throw const HiveError(
+    } catch (e) {
+      throw HiveError(
         code: HiveErrorCode.unsupportedImage,
         message: 'This image format is not supported on this device.',
+        // Keep the engine's own message: it says why the decode failed.
+        technicalDetails: '${e.runtimeType}: $e (input ${inputBytes.length} bytes)',
       );
     }
 
@@ -86,4 +100,34 @@ class FlutterImageCompressor implements ImageCompressor {
       height: h,
     );
   }
+}
+
+/// True when [bytes] is a JPEG or PNG that ends before its end marker, which
+/// means the copy of the file is incomplete. Other formats are not judged.
+bool looksTruncated(List<int> bytes) {
+  bool endsWith(List<int> tail) {
+    if (bytes.length < tail.length) return false;
+    // Some writers pad with zero bytes after the end marker; look a little back.
+    final window = bytes.length < 64 ? bytes.length : 64;
+    for (var start = bytes.length - tail.length; start >= bytes.length - window; start--) {
+      var match = true;
+      for (var i = 0; i < tail.length; i++) {
+        if (bytes[start + i] != tail[i]) {
+          match = false;
+          break;
+        }
+      }
+      if (match) return true;
+    }
+    return false;
+  }
+
+  final isJpeg = bytes.length > 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF;
+  if (isJpeg) return !endsWith(const [0xFF, 0xD9]);
+
+  final isPng = bytes.length > 8 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47;
+  // PNG ends with an IEND chunk: "IEND" followed by its 4-byte CRC.
+  if (isPng) return !endsWith(const [0x49, 0x45, 0x4E, 0x44]);
+
+  return false;
 }

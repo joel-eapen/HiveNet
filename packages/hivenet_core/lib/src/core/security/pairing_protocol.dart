@@ -27,6 +27,7 @@ class PairingInvite {
     required this.port,
     required this.secret,
     required this.expiresAt,
+    this.deviceName = '',
   });
 
   static const String scheme = 'hivenet://pair?d=';
@@ -42,6 +43,10 @@ class PairingInvite {
   final Uint8List secret;
   final DateTime expiresAt;
 
+  /// Shown to the scanning user so they know who they are about to pair with.
+  /// Untrusted text: it comes from a QR code.
+  final String deviceName;
+
   String get fingerprint => Ed25519DeviceIdentityService.fingerprintFor(publicKey);
 
   String toQrString() => scheme +
@@ -53,6 +58,7 @@ class PairingInvite {
         'p': port,
         's': base64Encode(secret),
         'x': expiresAt.toUtc().millisecondsSinceEpoch,
+        if (deviceName.isNotEmpty) 'n': deviceName,
       })));
 
   /// Parses and validates scanned text. Throws a [HiveError] for anything
@@ -81,6 +87,7 @@ class PairingInvite {
       if (secret.length != secretBytes) throw const FormatException('invalid secret');
       if (!expires.isAfter(now)) throw const FormatException('this code has expired');
       return PairingInvite(
+        deviceName: j['n'] is String ? _name(j['n']) : '',
         nodeId: id,
         publicKey: key,
         host: host,
@@ -216,8 +223,15 @@ Future<TrustedDevice> runPairingAsJoiner({
     if (!_equalBytes(channel.peerPublicKey, invite.publicKey)) {
       throw _refused('connected device is not the one in the code');
     }
+    // The code already told us who we are pairing with (name and fingerprint),
+    // so ask this user right away instead of waiting for the other phone.
+    final inviterLabel = invite.deviceName.isEmpty ? 'Unnamed device' : invite.deviceName;
+    final mine = await confirm(inviterLabel, invite.fingerprint);
+    if (!mine) throw _refused('declined on this device');
+
     await channel.send(_pairMsg(MessageType.pairRequest, self.nodeId, {
       'name': self.deviceName,
+      'accepted': true,
       // Where this device listens, so the inviter can reach it later without
       // relying on mDNS.
       if (listenPort != null) 'port': listenPort,
@@ -228,20 +242,18 @@ Future<TrustedDevice> runPairingAsJoiner({
       )),
     }));
 
-    final theirs = await _next(inbox, MessageType.pairConfirm, timeout);
-    if (theirs.payload['accepted'] != true) {
+    // The inviter answers once its user has decided. We save only if it says
+    // it accepted and has already saved us.
+    final reply = await _next(inbox, MessageType.pairConfirm, timeout);
+    if (reply.payload['accepted'] != true || reply.payload['done'] != true) {
       throw _refused('the other device declined');
     }
-    final inviterName = _name(theirs.payload['name']);
-
-    final mine = await confirm(inviterName, invite.fingerprint);
-    await channel.send(_pairMsg(MessageType.pairConfirm, self.nodeId, {'accepted': mine}));
-    if (!mine) throw _refused('declined on this device');
-
-    final done = await _next(inbox, MessageType.pairConfirm, timeout);
-    if (done.payload['done'] != true) throw _refused('the other device did not finish');
-
-    final device = _trusted(inviterName, invite.publicKey, now());
+    final replyName = reply.payload['name'];
+    final device = _trusted(
+      replyName is String ? _name(replyName) : inviterLabel,
+      invite.publicKey,
+      now(),
+    );
     await save(device);
     return device;
   } finally {
@@ -276,6 +288,9 @@ Future<TrustedDevice> runPairingAsInviter({
       await channel.send(_pairMsg(MessageType.pairConfirm, self.nodeId, {'accepted': false}));
       throw _refused('invalid, used or expired pairing code');
     }
+    if (request.payload['accepted'] != true) {
+      throw _refused('the other device declined');
+    }
     final joinerName = _name(request.payload['name']);
     final port = request.payload['port'];
     if (port is int && port > 0 && port < 65536) onPeerPort?.call(port);
@@ -283,20 +298,18 @@ Future<TrustedDevice> runPairingAsInviter({
         Ed25519DeviceIdentityService.fingerprintFor(channel.peerPublicKey);
 
     final mine = await confirm(joinerName, joinerFingerprint);
+    if (!mine) {
+      await channel.send(_pairMsg(MessageType.pairConfirm, self.nodeId, {'accepted': false}));
+      throw _refused('declined on this device');
+    }
+    final device = _trusted(joinerName, channel.peerPublicKey, now());
+    await save(device);
     await channel.send(_pairMsg(MessageType.pairConfirm, self.nodeId, {
-      'accepted': mine,
+      'accepted': true,
+      'done': true,
       'name': self.deviceName,
     }));
-    if (!mine) throw _refused('declined on this device');
-
-    final theirs = await _next(inbox, MessageType.pairConfirm, timeout);
-    final accepted = theirs.payload['accepted'] == true;
-    if (accepted) {
-      await save(_trusted(joinerName, channel.peerPublicKey, now()));
-    }
-    await channel.send(_pairMsg(MessageType.pairConfirm, self.nodeId, {'done': accepted}));
-    if (!accepted) throw _refused('the other device declined');
-    return _trusted(joinerName, channel.peerPublicKey, now());
+    return device;
   } finally {
     await inbox.cancel();
     await channel.close();
