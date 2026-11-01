@@ -61,12 +61,14 @@ enum UploadState implements WireEnum {
 
   /// States reachable from each state. `completed` is reachable only from
   /// `replicating`, so success can never skip verification (no false success).
+  /// `underReplicated` is reachable from every in-flight state so a job that
+  /// already has a verified replica never has to report "waiting to retry".
   static const Map<UploadState, Set<UploadState>> allowedTransitions = {
     created: {reserving, failed},
     reserving: {transferring, retryPending, failed, underReplicated},
-    transferring: {verifying, retryPending, failed},
-    verifying: {committing, retryPending, failed},
-    committing: {replicating, retryPending, failed},
+    transferring: {verifying, retryPending, failed, underReplicated},
+    verifying: {committing, retryPending, failed, underReplicated},
+    committing: {replicating, retryPending, failed, underReplicated},
     replicating: {completed, underReplicated, retryPending, failed},
     retryPending: {reserving, failed, underReplicated},
     underReplicated: {reserving, replicating, failed},

@@ -34,6 +34,13 @@ export 'src/core/networking/socket_server.dart';
 
 // Router engine
 export 'src/core/router_engine/decision_model_adapter.dart';
+export 'src/core/router_engine/default_replication_manager.dart';
+export 'src/core/router_engine/deterministic_storage_router.dart';
+export 'src/core/router_engine/local_quota_manager.dart';
+export 'src/core/router_engine/placement_audit.dart';
+export 'src/core/router_engine/placement_eligibility.dart';
+export 'src/core/router_engine/replica_transport.dart';
+export 'src/core/router_engine/replication_store.dart';
 export 'src/core/router_engine/node_scorer.dart';
 export 'src/core/router_engine/quota_manager.dart';
 export 'src/core/router_engine/replication_manager.dart';
@@ -69,6 +76,7 @@ export 'src/core/metadata/reconciliation.dart';
 
 // Database
 export 'src/database/app_database.dart';
+export 'src/database/drift_replication_store.dart';
 export 'src/database/daos/access_grants_dao.dart';
 export 'src/database/daos/files_dao.dart';
 export 'src/database/daos/manifest_events_dao.dart';

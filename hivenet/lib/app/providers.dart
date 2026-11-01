@@ -36,8 +36,45 @@ final compressionConfigProvider =
 final networkConfigProvider =
     Provider<NetworkConfig>((ref) => const NetworkConfig());
 
-final storageRouterProvider =
-    Provider<StorageRouter>((ref) => const UnimplementedStorageRouter());
+final nodeScorerProvider =
+    Provider<NodeScorer>((ref) => const DeterministicNodeScorer());
+
+/// Peers that are paired and not revoked. Read on every placement, so a
+/// revocation takes effect on the next upload.
+Future<Set<String>> _pairedNodeIds(AppDatabase db) async {
+  final rows = await db.trustedDevicesDao.getAll();
+  return {
+    for (final r in rows)
+      if (r.trustStatus == TrustStatus.paired.wire && r.revokedAt == null)
+        r.nodeId,
+  };
+}
+
+final storageRouterProvider = Provider<StorageRouter>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return DeterministicStorageRouter(
+    trustedNodeIds: () => _pairedNodeIds(db),
+    scorer: ref.watch(nodeScorerProvider),
+    // The AI ranker is optional and off until it is evaluated (PRD FR-05).
+    decisionModel: ref.watch(decisionModelProvider),
+    policy: EligibilityPolicy.fromNetwork(ref.watch(networkConfigProvider)),
+  );
+});
+
+final replicationStoreProvider = Provider<ReplicationStore>(
+    (ref) => DriftReplicationStore(ref.watch(appDatabaseProvider)));
+
+/// Placeholder contribution limit until the Storage settings screen lets the
+/// user choose one (PRD FR-12).
+const int kPlaceholderContributionBytes = 1024 * 1024 * 1024;
+
+final quotaManagerProvider = Provider<QuotaManager>((ref) {
+  final files = ref.watch(fileStoreProvider);
+  return LocalQuotaManager(
+    quotaBytes: kPlaceholderContributionBytes,
+    storedBytes: files.usedBytes,
+  );
+});
 
 /// AI ranking is optional and cannot block uploads (PRD FR-05).
 final decisionModelProvider =

@@ -1,5 +1,6 @@
 import '../../shared/models/enums.dart';
 import '../../shared/models/peer_telemetry.dart';
+import 'placement_audit.dart';
 
 class PlacementRequest {
   const PlacementRequest({
@@ -17,11 +18,18 @@ class PlacementRequest {
 }
 
 class PlacementPlan {
-  const PlacementPlan({required this.targetNodeIds, required this.desiredReplicas});
+  const PlacementPlan({
+    required this.targetNodeIds,
+    required this.desiredReplicas,
+    this.audit,
+  });
 
   /// Distinct storage peers, best first.
   final List<String> targetNodeIds;
   final int desiredReplicas;
+
+  /// How this plan was reached, for debugging. Null for hand-built plans.
+  final PlacementAudit? audit;
 
   /// True when too few eligible peers exist. The upload must then stay
   /// `pending` or `under_replicated`, never report full success.

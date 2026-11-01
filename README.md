@@ -11,6 +11,7 @@ No PRD milestone is complete yet.
 - **Skeleton:** folder structure, interfaces, data contract, database schema, theme, navigation and placeholder screens.
 - **Milestone 0 (in progress):** a developer screen, Settings → Feasibility spike, tests the eight mobile compatibility checks. Waiting on real phones. See [docs/milestone0_device_test_guide.md](docs/milestone0_device_test_guide.md).
 - **Milestone 3 foundation (done, in `hivenet_core`):** length-prefixed framing, SHA-256 integrity checker, chunk manager with resume, file store with verified atomic commit, AES-256-GCM encryption. Covered by tests including an end-to-end pipeline test.
+- **Milestone 4 foundation (done, in `hivenet_core`):** hard eligibility filter, deterministic node scoring, a placement router that validates any AI ranking and falls back safely, atomic quota reservations, and the upload/replication state machine with persistence and restart recovery. It runs against a `ReplicaTransport` interface, so it is tested with fake peers; no real peer connection exists yet.
 - **Not built yet:** image compression and thumbnails, discovery, pairing, the real TCP server and client, replication, the real gallery, access control and key wrapping. Unbuilt services throw `UnimplementedError`, and the UI labels fixture data with a "Demo data" banner.
 
 ## Documentation
@@ -110,10 +111,10 @@ Module paths are under `packages/hivenet_core/lib/src/`. Milestones are from PRD
 | `security/pairing_service` | 2 |
 | `compression/` | 3 (not built) |
 | `storage/` (file store, chunks, integrity), `networking/length_prefixed_framing`, `security/aes_gcm_encryption_service` | 3 (foundation built) |
-| `router_engine/` (router, scorer, quota, replication) | 4 |
+| `router_engine/` (router, scorer, quota, replication) | 4 (foundation built; needs a real `ReplicaTransport` from Milestones 2 and 3) |
 | `metadata/`, `retrieval/` | 5 |
 | `retrieval/access_control`, key wrapping | 6 |
-| Replica repair, optional AI ranking via `decision_model_adapter` | 7 |
+| Replica repair (`repairUnderReplicated`), optional AI ranking via `decision_model_adapter` | 7 |
 
 ## Design rules to keep
 

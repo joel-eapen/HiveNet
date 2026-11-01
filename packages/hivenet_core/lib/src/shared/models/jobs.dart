@@ -23,6 +23,17 @@ class UploadJob {
   final DateTime? completedAt;
   final String? failureReason;
 
+  /// Returns a copy that records the content ID once it is known.
+  UploadJob withContentId(String id) => UploadJob(
+        jobId: jobId,
+        contentId: id,
+        status: status,
+        requestedReplicationFactor: requestedReplicationFactor,
+        createdAt: createdAt,
+        completedAt: completedAt,
+        failureReason: failureReason,
+      );
+
   /// Returns a copy in [next], throwing if the state machine forbids it.
   UploadJob transitionTo(UploadState next, {String? failureReason}) {
     if (!status.canTransitionTo(next)) {

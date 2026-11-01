@@ -32,6 +32,18 @@ void main() {
     }
   });
 
+  test('an in-flight job that already has a replica can be under-replicated', () {
+    // Otherwise it would have to report "waiting to retry" despite a replica.
+    for (final s in [
+      UploadState.reserving, UploadState.transferring, UploadState.verifying,
+      UploadState.committing, UploadState.replicating, UploadState.retryPending,
+    ]) {
+      expect(s.canTransitionTo(UploadState.underReplicated), isTrue, reason: '$s');
+    }
+    expect(UploadState.created.canTransitionTo(UploadState.underReplicated), isFalse);
+    expect(UploadState.completed.canTransitionTo(UploadState.underReplicated), isFalse);
+  });
+
   test('completed and failed are terminal', () {
     expect(UploadState.completed.isTerminal, isTrue);
     expect(UploadState.failed.isTerminal, isTrue);
