@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import '../../shared/models/enums.dart';
 import '../../shared/models/hive_error.dart';
@@ -34,7 +35,13 @@ class PeerStorageService {
     required this.quota,
     this.maxObjectBytes = 64 * 1024 * 1024,
     this.chunkSize = 1024 * 1024,
+    this.authorizeRetrieval = _denyAll,
+    this.onCommitted,
+    this.telemetry,
+    this.onOther,
   });
+
+  static Future<bool> _denyAll(String requesterNodeId, String contentId) async => false;
 
   final FileStore files;
   final ChunkManager chunks;
@@ -46,8 +53,37 @@ class PeerStorageService {
   /// Must equal the chunk size of [chunks] and of the uploader.
   final int chunkSize;
 
+  /// Whether [requesterNodeId] may download the ciphertext of [contentId].
+  /// Checked on every request, separately from who stored it (PRD FR-09A).
+  /// Defaults to refusing everyone.
+  final Future<bool> Function(String requesterNodeId, String contentId)
+      authorizeRetrieval;
+
+  /// Called once an object has been verified and committed here, with the
+  /// device that uploaded it. The app uses this to record who may fetch it.
+  /// Not called when the object was already stored, so a device that merely
+  /// knows a content id cannot make itself the owner.
+  final Future<void> Function(String contentId, String uploaderNodeId)?
+      onCommitted;
+
+  /// Answers a heartbeat with this device's current storage numbers (PRD
+  /// FR-02). Peers treat them as an estimate; capacity is re-checked on every
+  /// reservation here.
+  final Future<Map<String, Object?>> Function()? telemetry;
+
+  /// Handles message types this service does not (sharing, grants). Its reply,
+  /// if any, is sent back.
+  final Future<MessageEnvelope?> Function(MessageEnvelope message, SecureChannel channel)?
+      onOther;
+
   /// jobId -> what the uploader announced, so commit can check it.
   final Map<String, _Upload> _uploads = {};
+
+  static const _delegated = {
+    MessageType.accessGrant,
+    MessageType.accessRevoke,
+    MessageType.keyDelivery,
+  };
 
   static final RegExp _safeId = RegExp(r'^[A-Za-z0-9_-]{1,64}$');
 
@@ -78,6 +114,12 @@ class PeerStorageService {
     SecureChannel channel,
     Set<String> owned,
   ) async {
+    if (m.type == MessageType.getImage) return _serveChunk(m, channel);
+    if (_delegated.contains(m.type)) return onOther?.call(m, channel);
+    if (m.type == MessageType.heartbeat) {
+      return _reply(m, MessageType.heartbeat, await telemetry?.call() ?? const {});
+    }
+
     final jobId = m.payload['jobId'];
     if (jobId is! String || !_safeId.hasMatch(jobId)) {
       return _error(m, HiveErrorCode.malformedMessage, 'invalid job id');
@@ -164,6 +206,9 @@ class PeerStorageService {
         upload.committed = true;
         await quota.release(key); // now counted as stored, not reserved
         _uploads.remove(key);
+        if (!upload.alreadyStored) {
+          await onCommitted?.call(contentId, channel.peerNodeId);
+        }
         return _reply(m, MessageType.replicaCommitted, {'ciphertextHash': expected});
 
       case MessageType.storageReject:
@@ -176,6 +221,45 @@ class PeerStorageService {
       default:
         return _error(m, HiveErrorCode.malformedMessage, 'unexpected ${m.type.wire}');
     }
+  }
+
+  /// Serves one chunk of a stored object to an authorized device. The client
+  /// asks chunk by chunk, so it controls the pace and can resume or switch
+  /// replicas at any point.
+  Future<MessageEnvelope> _serveChunk(MessageEnvelope m, SecureChannel channel) async {
+    final contentId = m.contentId;
+    final index = m.payload['index'];
+    if (contentId == null || !_safeId.hasMatch(contentId) || contentId.length < 2 ||
+        index is! int || index < 0) {
+      return _error(m, HiveErrorCode.malformedMessage, 'invalid image request');
+    }
+    // Authorization comes first and uses the proven identity of the requester,
+    // never anything inside the message.
+    if (!await authorizeRetrieval(channel.peerNodeId, contentId)) {
+      return _reply(m, MessageType.accessDenied, {});
+    }
+    final size = await files.sizeOf(contentId);
+    if (size == null) return _reply(m, MessageType.imageNotFound, {});
+
+    final start = index * chunkSize;
+    if (start >= size) {
+      return _error(m, HiveErrorCode.malformedMessage, 'chunk out of range');
+    }
+    final end = (start + chunkSize) < size ? start + chunkSize : size;
+    final out = BytesBuilder(copy: false);
+    await for (final part in files.openRead(contentId, start: start)) {
+      out.add(part);
+      if (out.length >= end - start) break;
+    }
+    final bytes = out.takeBytes();
+    return MessageEnvelope(
+      type: MessageType.chunkData,
+      requestId: m.requestId,
+      senderNodeId: '',
+      contentId: contentId,
+      payload: {'index': index, 'size': size, 'last': end >= size},
+      data: Uint8List.sublistView(bytes, 0, end - start),
+    );
   }
 
   // Reservations and partial files are per (peer, job), so one peer cannot

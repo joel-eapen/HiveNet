@@ -21,6 +21,7 @@ class StorageLayout {
   static const retrievedCacheDirName = 'retrieved';
   static const temporaryDirName = 'temporary';
   static const incompleteTransfersDirName = 'incomplete-transfers';
+  static const outgoingDirName = 'outgoing';
   static const databaseDirName = 'database';
   static const databaseFileName = 'hivenet.sqlite';
 
@@ -30,6 +31,8 @@ class StorageLayout {
       '$rootPath/$cacheDirName/$retrievedCacheDirName';
   String get incompleteTransfersDir =>
       '$rootPath/$temporaryDirName/$incompleteTransfersDirName';
+  /// Encrypted objects this device is uploading or has uploaded.
+  String get outgoingDir => '$rootPath/$temporaryDirName/$outgoingDirName';
   String get databaseDir => '$rootPath/$databaseDirName';
   String get databasePath => '$databaseDir/$databaseFileName';
 
@@ -39,6 +42,7 @@ class StorageLayout {
         thumbnailsDir,
         retrievedCacheDir,
         incompleteTransfersDir,
+        outgoingDir,
         databaseDir,
       ];
 
@@ -51,6 +55,12 @@ class StorageLayout {
   String thumbnailPath(String contentId) {
     _checkContentId(contentId);
     return '$thumbnailsDir/$contentId.webp';
+  }
+
+  /// The encrypted object being uploaded for [contentId].
+  String outgoingPath(String contentId) {
+    _checkContentId(contentId);
+    return '$outgoingDir/$contentId.enc';
   }
 
   /// Partial transfer data. Never counted as a valid replica.

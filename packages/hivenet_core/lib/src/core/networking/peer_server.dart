@@ -15,7 +15,7 @@ class PeerServer {
     required this.signer,
     required this.verifier,
     required this.onChannel,
-    this.allowUnknown = false,
+    this.allowUnknown = _never,
     this.handshakeTimeout = const Duration(seconds: 10),
     this.maxPendingHandshakes = 16,
   });
@@ -25,8 +25,11 @@ class PeerServer {
   final PeerVerifier verifier;
   final void Function(SecureChannel channel) onChannel;
 
-  /// True only while accepting a pairing.
-  final bool allowUnknown;
+  /// Asked for every connection. True only while a pairing invite is active,
+  /// so unknown devices can connect to pair and at no other time.
+  final bool Function() allowUnknown;
+
+  static bool _never() => false;
   final Duration handshakeTimeout;
 
   /// Handshakes allowed at once. Stops an unauthenticated flood from using up
@@ -65,7 +68,7 @@ class PeerServer {
         identity: identity,
         signer: signer,
         verifier: verifier,
-        allowUnknown: allowUnknown,
+        allowUnknown: allowUnknown(),
         timeout: handshakeTimeout,
       );
       onChannel(channel);

@@ -37,7 +37,7 @@ final imageCompressorProvider =
     Provider<ImageCompressor>((ref) => const FlutterImageCompressor());
 
 final peerDiscoveryProvider =
-    Provider<PeerDiscovery>((ref) => const BonsoirPeerDiscovery());
+    Provider<PeerDiscovery>((ref) => BonsoirPeerDiscovery());
 
 // --- Core services (stubs until their milestones) ---
 

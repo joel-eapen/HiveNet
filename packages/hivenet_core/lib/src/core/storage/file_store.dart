@@ -13,6 +13,9 @@ abstract interface class FileStore {
   });
 
   Stream<List<int>> openRead(String contentId, {int start = 0});
+
+  /// Size in bytes of the committed object, or null if it is not stored.
+  Future<int?> sizeOf(String contentId);
   Future<void> delete(String contentId);
   Future<int> usedBytes();
 }
@@ -34,6 +37,10 @@ class UnimplementedFileStore implements FileStore {
 
   @override
   Stream<List<int>> openRead(String contentId, {int start = 0}) =>
+      throw UnimplementedError('FileStore: Milestone 3');
+
+  @override
+  Future<int?> sizeOf(String contentId) =>
       throw UnimplementedError('FileStore: Milestone 3');
 
   @override

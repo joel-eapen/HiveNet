@@ -206,6 +206,7 @@ Future<TrustedDevice> runPairingAsJoiner({
   required DeviceIdentity self,
   required ConfirmPeer confirm,
   required SaveTrustedDevice save,
+  int? listenPort,
   Duration timeout = const Duration(minutes: 2),
   DateTime Function()? clock,
 }) async {
@@ -217,6 +218,9 @@ Future<TrustedDevice> runPairingAsJoiner({
     }
     await channel.send(_pairMsg(MessageType.pairRequest, self.nodeId, {
       'name': self.deviceName,
+      // Where this device listens, so the inviter can reach it later without
+      // relying on mDNS.
+      if (listenPort != null) 'port': listenPort,
       'proof': base64Encode(pairingProof(
         secret: invite.secret,
         channelBinding: channel.channelBinding,
@@ -254,6 +258,7 @@ Future<TrustedDevice> runPairingAsInviter({
   required DeviceIdentity self,
   required ConfirmPeer confirm,
   required SaveTrustedDevice save,
+  void Function(int port)? onPeerPort,
   Duration timeout = const Duration(minutes: 2),
   DateTime Function()? clock,
 }) async {
@@ -272,6 +277,8 @@ Future<TrustedDevice> runPairingAsInviter({
       throw _refused('invalid, used or expired pairing code');
     }
     final joinerName = _name(request.payload['name']);
+    final port = request.payload['port'];
+    if (port is int && port > 0 && port < 65536) onPeerPort?.call(port);
     final joinerFingerprint =
         Ed25519DeviceIdentityService.fingerprintFor(channel.peerPublicKey);
 

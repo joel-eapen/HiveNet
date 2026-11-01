@@ -117,6 +117,9 @@ class SecureChannel {
   Future<void> _sendTail = Future.value();
   bool _closed = false;
 
+  /// Network address the peer connected from (or was dialled at).
+  String get remoteAddress => _socket.remoteAddress.address;
+
   /// Decrypted, authenticated messages. Ends when the connection closes; an
   /// error means the peer sent something invalid and the channel was closed.
   Stream<MessageEnvelope> get messages => _incoming.stream;
@@ -185,6 +188,10 @@ class SecureChannel {
     // Large enough for any message plus the AEAD tag; small enough to bound
     // what an unauthenticated peer can make us buffer.
     final queue = _FrameQueue(socket, maxMessageBytes + _tagBytes + 64);
+    // A peer that vanishes mid-write fails the socket's `done` future. We
+    // already notice the loss through the read side, so mark this handled
+    // instead of letting it surface as an uncaught error.
+    socket.done.then<void>((_) {}, onError: (Object _) {});
     try {
       final result = await (() async {
         final channel = await _handshake(
@@ -368,8 +375,15 @@ class SecureChannel {
       nonce: _nonce(counter),
       aad: _frameAad,
     );
-    _socket.add(LengthPrefixedBuffer.frame(
-        Uint8List.fromList([...box.cipherText, ...box.mac.bytes])));
+    try {
+      _socket.add(LengthPrefixedBuffer.frame(
+          Uint8List.fromList([...box.cipherText, ...box.mac.bytes])));
+    } on SocketException {
+      throw HiveError(
+        code: HiveErrorCode.peerDisconnected,
+        message: 'The other device disconnected.',
+      );
+    }
   }
 
   Future<void> _pump() async {

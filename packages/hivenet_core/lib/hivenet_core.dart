@@ -55,6 +55,8 @@ export 'src/core/retrieval/content_locator.dart';
 export 'src/core/retrieval/download_manager.dart';
 export 'src/core/retrieval/image_request_manager.dart';
 export 'src/core/retrieval/replica_selector.dart';
+export 'src/core/retrieval/retrieval_service.dart';
+export 'src/core/upload/upload_service.dart';
 
 // Storage
 export 'src/core/storage/chunk_manager.dart';
@@ -77,12 +79,14 @@ export 'src/core/security/pairing_service.dart';
 export 'src/core/security/secure_channel.dart';
 
 // Metadata
+export 'src/core/metadata/local_manifest_repository.dart';
 export 'src/core/metadata/manifest.dart';
 export 'src/core/metadata/metadata_sync.dart';
 export 'src/core/metadata/reconciliation.dart';
 
 // Database
 export 'src/database/app_database.dart';
+export 'src/database/drift_access_policy.dart';
 export 'src/database/drift_replication_store.dart';
 export 'src/database/daos/access_grants_dao.dart';
 export 'src/database/daos/files_dao.dart';

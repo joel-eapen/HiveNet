@@ -65,6 +65,12 @@ class LocalFileStore implements FileStore {
       File(layout.objectPath(contentId)).openRead(start);
 
   @override
+  Future<int?> sizeOf(String contentId) async {
+    final file = File(layout.objectPath(contentId));
+    return await file.exists() ? await file.length() : null;
+  }
+
+  @override
   Future<void> delete(String contentId) async {
     final file = File(layout.objectPath(contentId));
     if (await file.exists()) await file.delete();

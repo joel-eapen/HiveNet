@@ -49,6 +49,7 @@ dependencies:
   logger: 2.8.0
   qr_flutter: 4.1.0
   crypto: 3.0.8
+  mobile_scanner: 7.4.3
 
 dev_dependencies:
   flutter_test:
